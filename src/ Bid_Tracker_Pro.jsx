@@ -1,19 +1,11 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
+import Papa from "papaparse";
 import { 
   Zap, LayoutGrid, List as ListIcon, Star, Plus, Download, X, Search, 
   ChevronUp, ChevronDown, ChevronsUpDown, CheckCircle2, Circle, 
   FileText, DollarSign, BarChart2, HardHat, Building, Mail, 
   ShieldCheck, Trash2, ClipboardCheck, ArrowRight, Save
 } from "lucide-react";
-
-const initialBids = [
-  { id: 1, status: "Open", dueDate: "2026-03-16", title: "UPS Revitalization and Preventive Maintenance for the Bedford VA Medical Center", state: "MA", city: "Bedford", facility: "Bedford VA Medical Center", bidAmount: "", awardedAmount: "", reason: "", visn: "1", nco: "NCO 1", contractor: "Andy Ramos Electric LLC", contractNo: "", priority: "High", category: "Electrical", chk_sf1449: false, chk_sow_pws: true, chk_pricing: false, chk_past_perf: false, chk_osha_safety: false, chk_licenses: false, chk_site_visit: true, chk_sub_loi: false, chk_compliance: false, notes: [], starred: true },
-  { id: 2, status: "Open", dueDate: "2026-03-13", title: "Triennial Electrical Inspections for VA Wilkes-Barre", state: "PA", city: "Wilkes-Barre", facility: "VA Wilkes-Barre", bidAmount: "", awardedAmount: "", reason: "", visn: "4", nco: "NCO 4", contractor: "Andy Ramos Electric LLC", contractNo: "", priority: "Critical", category: "Inspection", chk_sf1449: true, chk_sow_pws: true, chk_pricing: false, chk_past_perf: false, chk_osha_safety: false, chk_licenses: false, chk_site_visit: false, chk_sub_loi: false, chk_compliance: false, notes: [], starred: false },
-  { id: 3, status: "Awarded", dueDate: "2026-02-28", title: "HVAC System Replacement – Lebanon VA Medical Center", state: "PA", city: "Lebanon", facility: "Lebanon VA Medical Center", bidAmount: "485000", awardedAmount: "472500", reason: "Lowest responsive bid", visn: "4", nco: "NCO 4", contractor: "Apex Mechanical LLC", contractNo: "VA244-26-C-0182", priority: "Medium", category: "HVAC", chk_sf1449: true, chk_sow_pws: true, chk_pricing: true, chk_past_perf: true, chk_osha_safety: true, chk_licenses: true, chk_site_visit: true, chk_sub_loi: true, chk_compliance: true, notes: ["Awarded to Apex Mechanical"], starred: false },
-  { id: 4, status: "Open", dueDate: "2026-03-25", title: "Grounds Maintenance and Landscaping Services – Togus VA Medical Center", state: "ME", city: "Togus", facility: "Togus VA Medical Center", bidAmount: "", awardedAmount: "", reason: "", visn: "1", nco: "NCO 1", contractor: "", contractNo: "", priority: "Low", category: "Grounds", chk_sf1449: true, chk_sow_pws: true, chk_pricing: true, chk_past_perf: false, chk_osha_safety: false, chk_licenses: false, chk_site_visit: false, chk_sub_loi: false, chk_compliance: false, notes: [], starred: false },
-  { id: 5, status: "Closed", dueDate: "2026-03-01", title: "Elevator Modernization – Providence VA Medical Center", state: "RI", city: "Providence", facility: "Providence VA Medical Center", bidAmount: "310000", awardedAmount: "", reason: "Under review", visn: "1", nco: "NCO 1", contractor: "Andy Ramos Electric LLC", contractNo: "", priority: "Medium", category: "Construction", chk_sf1449: true, chk_sow_pws: true, chk_pricing: true, chk_past_perf: true, chk_osha_safety: true, chk_licenses: true, chk_site_visit: false, chk_sub_loi: false, chk_compliance: false, notes: ["Bid submitted, pending award"], starred: false },
-  { id: 6, status: "Open", dueDate: "2026-04-02", title: "Plumbing Infrastructure Upgrade – White River Junction VAMC", state: "VT", city: "White River Junction", facility: "White River Junction VAMC", bidAmount: "", awardedAmount: "", reason: "", visn: "1", nco: "NCO 1", contractor: "", contractNo: "", priority: "Medium", category: "Plumbing", chk_sf1449: false, chk_sow_pws: false, chk_pricing: false, chk_past_perf: false, chk_osha_safety: false, chk_licenses: false, chk_site_visit: false, chk_sub_loi: false, chk_compliance: false, notes: [], starred: false },
-];
 
 const CHECK_FIELDS = [
   { key: "chk_sf1449", label: "SF1449", Icon: FileText },
@@ -78,6 +70,7 @@ function Countdown({ dueDate, compact }) {
   const [timeLeft, setTimeLeft] = useState({});
   useEffect(() => {
     const calc = () => {
+      if (!dueDate) return setTimeLeft({ expired: false, missing: true });
       const diff = new Date(dueDate + "T23:59:59") - new Date();
       if (diff <= 0) return setTimeLeft({ expired: true });
       setTimeLeft({ days: Math.floor(diff / 86400000), hours: Math.floor((diff % 86400000) / 3600000), mins: Math.floor((diff % 3600000) / 60000), secs: Math.floor((diff % 60000) / 1000), expired: false });
@@ -85,6 +78,7 @@ function Countdown({ dueDate, compact }) {
     calc(); const t = setInterval(calc, 1000); return () => clearInterval(t);
   }, [dueDate]);
   
+  if (timeLeft.missing) return <span className="text-slate-500 font-bold text-xs">No Date</span>;
   if (timeLeft.expired) return <span className="text-rose-500 font-bold text-xs uppercase tracking-wider">Expired</span>;
   if (!("days" in timeLeft)) return null;
   
@@ -126,7 +120,7 @@ function KanbanView({ bids, onSelect, onToggleStar }) {
     <div className="flex gap-6 overflow-x-auto pb-6 min-h-[400px]">
       {cols.map(col => {
         const colBids = bids.filter(b => b.status === col);
-        const style = STATUS_COLORS[col];
+        const style = STATUS_COLORS[col] || STATUS_COLORS["Open"];
         
         return (
           <div key={col} className="min-w-[320px] flex-1">
@@ -139,15 +133,14 @@ function KanbanView({ bids, onSelect, onToggleStar }) {
             <div className="flex flex-col gap-3">
               {colBids.map(bid => {
                 const pct = Math.round(CHECK_FIELDS.filter(f => bid[f.key]).length / CHECK_FIELDS.length * 100);
-                const pStyle = PRIORITIES[bid.priority];
+                const pStyle = PRIORITIES[bid.priority] || PRIORITIES["Medium"];
                 
                 return (
                   <div key={bid.id} onClick={() => onSelect(bid)} className="group bg-slate-900 border border-slate-800 rounded-xl p-4 cursor-pointer hover:border-slate-600 transition-all relative overflow-hidden shadow-sm hover:shadow-md">
-                    {/* Top Progress Bar */}
                     <div className="absolute top-0 left-0 h-0.5 transition-all duration-500" style={{ width: `${pct}%`, backgroundColor: style.hex }} />
                     
                     <div className="flex justify-between items-start mb-3">
-                      <span className={`border rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${pStyle.bg} ${pStyle.border} ${pStyle.text}`}>{bid.priority}</span>
+                      <span className={`border rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${pStyle.bg} ${pStyle.border} ${pStyle.text}`}>{bid.priority || "Medium"}</span>
                       <button onClick={e => { e.stopPropagation(); onToggleStar(bid.id); }} className={`p-1 rounded-md transition-colors ${bid.starred ? "text-amber-400" : "text-slate-600 hover:text-slate-400 hover:bg-slate-800"}`}>
                         <Star className="w-4 h-4" fill={bid.starred ? "currentColor" : "none"} />
                       </button>
@@ -157,7 +150,7 @@ function KanbanView({ bids, onSelect, onToggleStar }) {
                     
                     <div className="flex justify-between items-end mt-4">
                       <div className="flex flex-col gap-1">
-                        <span className="text-slate-500 text-xs flex items-center gap-1.5"><Building className="w-3.5 h-3.5" />{bid.city}, {bid.state}</span>
+                        <span className="text-slate-500 text-xs flex items-center gap-1.5"><Building className="w-3.5 h-3.5" />{bid.city}{bid.state ? `, ${bid.state}` : ''}</span>
                       </div>
                       <Countdown dueDate={bid.dueDate} compact />
                     </div>
@@ -178,35 +171,36 @@ function BidModal({ bid, onClose, onSave, onDelete, toast }) {
   const [newNote, setNewNote] = useState("");
   const [tab, setTab] = useState("details");
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
-  const addNote = () => { if (!newNote.trim()) return; set("notes", [...form.notes, `${new Date().toLocaleDateString()}: ${newNote}`]); setNewNote(""); };
+  const addNote = () => { if (!newNote.trim()) return; set("notes", [...(form.notes || []), `${new Date().toLocaleDateString()}: ${newNote}`]); setNewNote(""); };
   const pct = Math.round(CHECK_FIELDS.filter(f => form[f.key]).length / CHECK_FIELDS.length * 100);
 
   const Input = ({ label, value, onChange, placeholder, type = "text", as = "input", options = [] }) => (
     <div className="flex flex-col gap-1.5">
       <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{label}</label>
       {as === "select" ? (
-        <select value={value} onChange={onChange} className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 transition-all">
+        <select value={value || ""} onChange={onChange} className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 transition-all">
           {options.map(o => <option key={o} value={o}>{o}</option>)}
         </select>
       ) : as === "textarea" ? (
-        <textarea value={value} onChange={onChange} placeholder={placeholder} className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 transition-all min-h-[80px] resize-y" />
+        <textarea value={value || ""} onChange={onChange} placeholder={placeholder} className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 transition-all min-h-[80px] resize-y" />
       ) : (
-        <input type={type} value={value} onChange={onChange} placeholder={placeholder} className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 transition-all" />
+        <input type={type} value={value || ""} onChange={onChange} placeholder={placeholder} className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 transition-all" />
       )}
     </div>
   );
+
+  const pStyle = PRIORITIES[form.priority] || PRIORITIES["Medium"];
 
   return (
     <div onClick={e => e.target === e.currentTarget && onClose()} className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 animate-in fade-in duration-200">
       <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
         
-        {/* Header */}
         <div className="p-6 border-b border-slate-800 flex-shrink-0">
           <div className="flex justify-between items-start mb-6">
             <div className="flex-1 pr-6">
               <div className="flex gap-2 mb-3">
-                <span className={`px-2.5 py-1 rounded text-xs font-bold ${PRIORITIES[form.priority].bg} ${PRIORITIES[form.priority].text}`}>{form.priority} Priority</span>
-                <span className="px-2.5 py-1 rounded text-xs font-medium bg-sky-500/10 text-sky-400 border border-sky-500/20">{form.category}</span>
+                <span className={`px-2.5 py-1 rounded text-xs font-bold ${pStyle.bg} ${pStyle.text}`}>{form.priority || "Medium"} Priority</span>
+                <span className="px-2.5 py-1 rounded text-xs font-medium bg-sky-500/10 text-sky-400 border border-sky-500/20">{form.category || "General"}</span>
               </div>
               <h2 className="text-xl font-bold text-white leading-snug">{form.title}</h2>
             </div>
@@ -218,7 +212,6 @@ function BidModal({ bid, onClose, onSave, onDelete, toast }) {
             </div>
           </div>
           
-          {/* Tabs */}
           <div className="flex gap-6 border-b border-slate-800">
             {["details", "checklist", "notes"].map(t => (
               <button key={t} onClick={() => setTab(t)} className={`pb-3 text-sm font-semibold capitalize border-b-2 transition-colors ${tab === t ? "border-sky-400 text-sky-400" : "border-transparent text-slate-400 hover:text-slate-300"}`}>
@@ -228,7 +221,6 @@ function BidModal({ bid, onClose, onSave, onDelete, toast }) {
           </div>
         </div>
 
-        {/* Content */}
         <div className="p-6 overflow-y-auto flex-1">
           {tab === "details" && (
             <div className="flex flex-col gap-5">
@@ -278,8 +270,8 @@ function BidModal({ bid, onClose, onSave, onDelete, toast }) {
               </div>
               
               <div className="flex-1 flex flex-col gap-3">
-                {form.notes.length === 0 && <div className="text-slate-500 text-center py-12 text-sm bg-slate-900/50 rounded-xl border border-dashed border-slate-800">No notes added yet.</div>}
-                {[...form.notes].reverse().map((n, i) => {
+                {(!form.notes || form.notes.length === 0) && <div className="text-slate-500 text-center py-12 text-sm bg-slate-900/50 rounded-xl border border-dashed border-slate-800">No notes added yet.</div>}
+                {(form.notes || []).slice().reverse().map((n, i) => {
                   const [date, ...rest] = n.split(":");
                   return (
                     <div key={i} className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4 flex flex-col gap-1.5">
@@ -293,7 +285,6 @@ function BidModal({ bid, onClose, onSave, onDelete, toast }) {
           )}
         </div>
 
-        {/* Footer */}
         <div className="p-6 border-t border-slate-800 bg-slate-900/50 flex justify-between items-center flex-shrink-0 rounded-b-2xl">
           <button onClick={() => { if (window.confirm("Are you sure you want to delete this bid?")) { onDelete(bid.id); onClose(); } }} className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-rose-400 hover:bg-rose-400/10 text-sm font-semibold transition-colors">
             <Trash2 className="w-4 h-4" /> Delete Bid
@@ -364,7 +355,7 @@ function AddBidModal({ onClose, onAdd }) {
 }
 
 export default function App() {
-  const [bids, setBids] = useState(initialBids);
+  const [bids, setBids] = useState([]);
   const [selected, setSelected] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
   const [view, setView] = useState("table");
@@ -376,6 +367,74 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [showStarred, setShowStarred] = useState(false);
   const [expandedRow, setExpandedRow] = useState(null);
+
+  useEffect(() => {
+    // Connect directly to the Google Sheet API Export Link
+    const SHEET_ID = '1n35yVc-lpZbmjAdHYbCwmUhrllMfPmlBfy2Hp9uA2Hg';
+    const SHEET_NAME = 'HISTORICAL DATA';
+    const csvUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_NAME)}`;
+
+    fetch(csvUrl)
+      .then(response => response.text())
+      .then(csvText => {
+        Papa.parse(csvText, {
+          header: true,        
+          dynamicTyping: true, 
+          skipEmptyLines: true,
+          complete: (result) => {
+            const liveData = result.data.map((row, index) => {
+              
+              // Safely format the date from Google Sheets to standard YYYY-MM-DD
+              let rawDate = row['Current Date Offers Due'];
+              let formattedDate = "";
+              if (rawDate) {
+                const d = new Date(rawDate);
+                if (!isNaN(d.getTime())) {
+                  formattedDate = d.toISOString().split('T')[0];
+                } else {
+                  formattedDate = String(rawDate).trim(); 
+                }
+              }
+
+              return {
+                id: row['Notice ID:'] || `sheet-row-${index}`,
+                status: row['STATUS'] || 'Open',
+                dueDate: formattedDate,
+                title: row['TITLE'] || 'Unknown Title',
+                state: row['STATE'] || '',
+                city: row['CITY'] || '',
+                facility: row['Office'] || 'VA Medical Center',
+                bidAmount: row['BID AMOUNT'] || '',
+                awardedAmount: row['AWARDED AMOUNT'] || '',
+                reason: row['REASON FOR LOSS'] || '',
+                contractor: row['AWARDED CONTRACTOR'] || '',
+                contractNo: row['CONTRACT NUMBER'] || '',
+                
+                // Defaults
+                priority: 'Medium', 
+                category: 'Electrical',
+                visn: '',
+                nco: '',
+                starred: false,
+                notes: [],
+                
+                chk_sf1449: false, 
+                chk_sow_pws: false, 
+                chk_pricing: false, 
+                chk_past_perf: false, 
+                chk_osha_safety: false, 
+                chk_licenses: false, 
+                chk_site_visit: false, 
+                chk_sub_loi: false, 
+                chk_compliance: false
+              };
+            });
+            setBids(liveData);
+          }
+        });
+      })
+      .catch(err => console.error("Error loading from Google Sheets:", err));
+  }, []);
 
   const showToast = useCallback((msg, type = "info") => setToast({ msg, type }), []);
   const toggleCheck = useCallback((id, field) => setBids(bs => bs.map(b => b.id === id ? { ...b, [field]: !b[field] } : b)), []);
@@ -389,7 +448,7 @@ export default function App() {
       .filter(b => (filter === "All" || b.status === filter) && 
                    (catFilter === "All" || b.category === catFilter) && 
                    (!showStarred || b.starred) && 
-                   (!search || [b.title, b.city, b.state, b.facility, b.contractor].some(f => f && f.toLowerCase().includes(search.toLowerCase()))))
+                   (!search || [b.title, b.city, b.state, b.facility, b.contractor].some(f => f && String(f).toLowerCase().includes(search.toLowerCase()))))
       .sort((a, b) => {
         let av = a[sortKey] || "", bv = b[sortKey] || "";
         if (sortKey === "dueDate") { av = new Date(av); bv = new Date(bv); }
@@ -400,7 +459,11 @@ export default function App() {
   const stats = useMemo(() => ({
     total: bids.length,
     open: bids.filter(b => b.status === "Open").length,
-    urgent: bids.filter(b => { const d = new Date(b.dueDate) - new Date(); return d > 0 && d < 3 * 86400000; }).length,
+    urgent: bids.filter(b => { 
+      if (!b.dueDate) return false;
+      const d = new Date(b.dueDate) - new Date(); 
+      return d > 0 && d < 3 * 86400000; 
+    }).length,
     awarded: bids.filter(b => b.status === "Awarded").length,
     totalValue: bids.reduce((s, b) => s + (Number(b.bidAmount) || 0), 0),
   }), [bids]);
@@ -408,7 +471,7 @@ export default function App() {
   const exportToCSV = useCallback(() => {
     if (filtered.length === 0) return showToast("No bids to export!", "warn");
     const headers = ["Status", "Due Date", "Title", "Facility", "City", "State", "Bid Amount", "Awarded Amount", "Priority", "Category", "Contractor"];
-    const csvRows = filtered.map(b => [b.status, b.dueDate, `"${b.title || ""}"`, `"${b.facility || ""}"`, `"${b.city || ""}"`, b.state, b.bidAmount, b.awardedAmount, b.priority, b.category, `"${b.contractor || ""}"`].join(","));
+    const csvRows = filtered.map(b => [b.status, b.dueDate, `"${(b.title || "").replace(/"/g, '""')}"`, `"${(b.facility || "").replace(/"/g, '""')}"`, `"${b.city || ""}"`, b.state, b.bidAmount, b.awardedAmount, b.priority, b.category, `"${(b.contractor || "").replace(/"/g, '""')}"`].join(","));
     const csvContent = [headers.join(","), ...csvRows].join("\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
@@ -432,7 +495,6 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-sky-500/30">
       
-      {/* App Header */}
       <header className="sticky top-0 z-40 bg-slate-950/80 backdrop-blur-md border-b border-slate-800 px-6 py-4">
         <div className="max-w-[1600px] mx-auto flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-4">
@@ -469,7 +531,6 @@ export default function App() {
 
       <main className="max-w-[1600px] mx-auto p-6 flex flex-col gap-6">
         
-        {/* Analytics Cards */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
           {[
             { label: "Total Tracked", value: stats.total, color: "#38bdf8", data: [3,4,5,5,6] },
@@ -489,7 +550,6 @@ export default function App() {
           ))}
         </div>
 
-        {/* Filters Toolbar */}
         <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-2 md:p-3 flex flex-wrap items-center gap-3">
           <div className="relative flex-1 min-w-[200px] max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
@@ -513,7 +573,6 @@ export default function App() {
           </button>
         </div>
 
-        {/* Main Content Area */}
         <div className="animate-in fade-in duration-300">
           {view === "kanban" ? (
             <KanbanView bids={filtered} onSelect={setSelected} onToggleStar={toggleStar} />
@@ -539,8 +598,8 @@ export default function App() {
                     )}
                     {filtered.map(bid => {
                       const pct = Math.round(CHECK_FIELDS.filter(f => bid[f.key]).length / CHECK_FIELDS.length * 100);
-                      const sc = STATUS_COLORS[bid.status];
-                      const pc = PRIORITIES[bid.priority];
+                      const sc = STATUS_COLORS[bid.status] || STATUS_COLORS["Open"];
+                      const pc = PRIORITIES[bid.priority] || PRIORITIES["Medium"];
                       const isExp = expandedRow === bid.id;
                       
                       return (
@@ -555,15 +614,19 @@ export default function App() {
                               <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wide border ${sc.bg} ${sc.border} ${sc.text}`}>{bid.status}</span>
                             </td>
                             <td className="px-4 py-4 align-top pt-4">
-                              <div className="text-slate-400 text-xs mb-1.5 font-medium">{new Date(bid.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</div>
+                              <div className="text-slate-400 text-xs mb-1.5 font-medium">{bid.dueDate ? new Date(bid.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "No Date Provided"}</div>
                               <Countdown dueDate={bid.dueDate} />
                             </td>
                             <td className="px-4 py-4">
                               <div className="text-sm font-semibold text-slate-200 mb-1.5 group-hover:text-sky-400 transition-colors line-clamp-2 pr-4">{bid.title}</div>
                               <div className="flex items-center gap-2 text-xs">
                                 <span className="text-slate-400 flex items-center gap-1"><Building className="w-3 h-3" /> {bid.facility}</span>
-                                <span className="w-1 h-1 rounded-full bg-slate-700" />
-                                <span className="text-slate-500">{bid.city}, {bid.state}</span>
+                                {bid.city && (
+                                  <>
+                                    <span className="w-1 h-1 rounded-full bg-slate-700" />
+                                    <span className="text-slate-500">{bid.city}{bid.state ? `, ${bid.state}` : ''}</span>
+                                  </>
+                                )}
                                 {bid.category && (
                                   <>
                                     <span className="w-1 h-1 rounded-full bg-slate-700" />
@@ -577,7 +640,7 @@ export default function App() {
                               {bid.awardedAmount && <div className="text-[10px] text-amber-500 font-mono mt-1" title="Awarded Amount">Aw: ${Number(bid.awardedAmount).toLocaleString()}</div>}
                             </td>
                             <td className="px-4 py-4 align-top pt-5">
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${pc.bg} ${pc.border} ${pc.text}`}>{bid.priority}</span>
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${pc.bg} ${pc.border} ${pc.text}`}>{bid.priority || "Medium"}</span>
                             </td>
                             <td className="px-4 py-4 text-center align-top pt-3 relative" onClick={e => { e.stopPropagation(); setExpandedRow(isExp ? null : bid.id); }}>
                               <ProgressRing pct={pct} size={42} stroke={3} />
@@ -598,7 +661,6 @@ export default function App() {
                             </td>
                           </tr>
                           
-                          {/* Expanded Details Row */}
                           {isExp && (
                             <tr className="bg-slate-900/80 border-b border-slate-800">
                               <td colSpan="8" className="px-8 py-5">
@@ -641,8 +703,7 @@ export default function App() {
         </div>
       </main>
 
-      {/* Modals & Toasts */}
-      {selected && <BidModal bid={bids.find(b => b.id === selected.id)} onClose={() => setSelected(null)} onSave={saveBid} onDelete={deleteBid} toast={showToast} />}
+      {selected && <BidModal bid={bids.find(b => b.id === selected.id) || selected} onClose={() => setSelected(null)} onSave={saveBid} onDelete={deleteBid} toast={showToast} />}
       {showAdd && <AddBidModal onClose={() => setShowAdd(false)} onAdd={addBid} />}
       {toast && <Toast message={toast.msg} type={toast.type} onDone={() => setToast(null)} />}
       
