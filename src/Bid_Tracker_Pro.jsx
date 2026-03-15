@@ -10,7 +10,7 @@ import {
   AlertCircle, Play, Pause, Activity, Globe
 } from "lucide-react";
 
-// ─── CONSTANTS & INITIAL DATA ────────────────────────────────────────────────
+// ─── CONSTANTS ───────────────────────────────────────────────────────────────
 
 const CHECK_FIELDS = [
   { key: "chk_sf1449",    label: "SF1449",    Icon: FileText },
@@ -59,32 +59,6 @@ const GEO_WIN_RATES = [
   { name: "Generator/ATS",  pct: 12, color: "#fb7185" },
   { name: "HVAC",           pct: 38, color: "#fbbf24" },
   { name: "Construction",   pct: 29, color: "#a78bfa" },
-];
-
-const INITIAL_PROJECTS = [
-  {
-    id: "p1",
-    title: "Electrical Upgrade Phase 2",
-    facility: "Bedford VAMC",
-    status: "In Progress",
-    phase: "Execution",
-    progress: 65,
-    startDate: "2026-01-15",
-    endDate: "2026-06-30",
-    contractValue: 245000,
-    collectedValue: 120000,
-    milestones: [
-      { id: 1, title: "Site Mobilization",   completed: true  },
-      { id: 2, title: "Rough-in Electrical", completed: true  },
-      { id: 3, title: "Final Inspection",    completed: false },
-    ],
-    invoices: [
-      { id: 1, amount: 80000, status: "Paid"    },
-      { id: 2, amount: 40000, status: "Pending" },
-    ],
-    issues: [{ id: 1, title: "Supply chain delay on main breakers", status: "Open" }],
-    notes: ["Approved for weekend work."],
-  },
 ];
 
 // ─── SHARED UTILITY COMPONENTS ───────────────────────────────────────────────
@@ -734,11 +708,9 @@ function AddProjectModal({ onClose, onAdd, initialData, isConversion }) {
 function GeoPerformanceView({ bids }) {
   const [selectedState, setSelectedState] = useState(null);
 
-  // Safely crunch the data to count bids and wins per state
   const stateWins = useMemo(() => {
     const map = {};
     (bids || []).forEach(b => {
-      // Ensure state is a 2-letter code for the map to recognize it
       const st = b.state ? b.state.trim().toUpperCase() : "UNKNOWN";
       if (!st || st === "UNKNOWN" || st.length !== 2) return; 
       
@@ -756,7 +728,6 @@ function GeoPerformanceView({ bids }) {
       .sort((a, b) => b.total - a.total);
   }, [bids]);
 
-  // Feed our data into the map colors
   const mapConfig = useMemo(() => {
     const config = {};
     stateWins.forEach(s => {
@@ -812,8 +783,12 @@ function GeoPerformanceView({ bids }) {
              </div>
           </div>
           
-          <div className="flex-1 flex items-center justify-center w-full mt-4 [&>svg]:w-full [&>svg]:max-w-3xl [&>svg]:h-auto [&_path]:fill-slate-800 [&_path]:stroke-slate-950 [&_path]:stroke-[1.5px] hover:[&_path]:fill-slate-700 cursor-pointer relative z-10">
-            <USAMap customize={mapConfig} onClick={handleMapClick} />
+          <div className="flex-1 flex items-center justify-center w-full mt-4 [&>svg]:w-full [&>svg]:max-w-3xl [&>svg]:h-auto [&_path]:stroke-slate-950 [&_path]:stroke-[1.5px] cursor-pointer relative z-10">
+            <USAMap 
+              customize={mapConfig} 
+              onClick={handleMapClick} 
+              defaultFill="#1e293b" 
+            />
           </div>
 
           {selectedState && (
@@ -984,7 +959,7 @@ export default function BidTrackerPro() {
   const [expandedRow, setExpandedRow] = useState(null);
 
   // ── Projects state ──
-  const [projects, setProjects]             = useState(INITIAL_PROJECTS);
+  const [projects, setProjects]             = useState([]);
   const [selectedProject, setSelectedProject] = useState(null);
   const [showAddProject, setShowAddProject] = useState(false);
   const [bidToConvert, setBidToConvert]     = useState(null);
@@ -996,13 +971,13 @@ export default function BidTrackerPro() {
   const [toast, setToast] = useState(null);
   const showToast = useCallback((msg, type = "info") => setToast({ msg, type }), []);
 
-  // ── Load bids from Google Sheet ──
+  // ── Load Bids & Projects from Google Sheet ──
   useEffect(() => {
-    const SHEET_ID   = "1n35yVc-lpZbmjAdHYbCwmUhrllMfPmlBfy2Hp9uA2Hg";
-    const SHEET_NAME = "HISTORICAL DATA";
-    const csvUrl     = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_NAME)}`;
-
-    fetch(csvUrl)
+    const SHEET_ID = "1n35yVc-lpZbmjAdHYbCwmUhrllMfPmlBfy2Hp9uA2Hg";
+    
+    // 1. Fetch Bids
+    const bidsUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=HISTORICAL%20DATA`;
+    fetch(bidsUrl)
       .then(res => res.text())
       .then(csvText => {
         Papa.parse(csvText, {
@@ -1010,9 +985,7 @@ export default function BidTrackerPro() {
           complete: (result) => {
             const liveData = result.data.map((row, i) => {
               let rawDate = row["Current Date Offers Due"];
-              let formattedDate = rawDate
-                ? (isNaN(new Date(rawDate).getTime()) ? String(rawDate).trim() : new Date(rawDate).toISOString().split("T")[0])
-                : "";
+              let formattedDate = rawDate ? (isNaN(new Date(rawDate).getTime()) ? String(rawDate).trim() : new Date(rawDate).toISOString().split("T")[0]) : "";
               return {
                 id:            row["Notice ID:"] || `sheet-row-${i}`,
                 status:        row["STATUS"]     || "Open",
@@ -1035,6 +1008,50 @@ export default function BidTrackerPro() {
             });
             setBids(liveData);
           },
+        });
+      });
+
+    // 2. Fetch Projects (from Project_Pro tab)
+    const projectsUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Project_Pro`;
+    fetch(projectsUrl)
+      .then(res => res.text())
+      .then(csvText => {
+        Papa.parse(csvText, {
+          header: true, dynamicTyping: true, skipEmptyLines: true,
+          complete: (result) => {
+            const liveProjects = result.data.map((row, i) => {
+              // Helper to safely strip $ and commas from currency strings
+              const cleanMoney = (val) => {
+                if (typeof val === 'number') return val;
+                if (!val) return 0;
+                return Number(val.toString().replace(/[^0-9.-]+/g,""));
+              };
+
+              // Safely format dates
+              let startDate = "";
+              let endDate = "";
+              try { if (row["START DATE"]) startDate = new Date(row["START DATE"]).toISOString().split("T")[0]; } catch(e){}
+              try { if (row["END DATE"]) endDate = new Date(row["END DATE"]).toISOString().split("T")[0]; } catch(e){}
+
+              return {
+                id: `proj-${i}`,
+                title: row["PROJECT TITLE "] || row["PROJECT TITLE"] || "Unknown Project", 
+                facility: row["FACILITY"] || "",
+                status: row["STATUS"] || "In Progress",
+                phase: row["PHASE "] || row["PHASE"] || "Planning",
+                progress: 0, 
+                startDate: startDate,
+                endDate: endDate,
+                contractValue: cleanMoney(row["CONTRACT VALUE ($)"]),
+                collectedValue: cleanMoney(row["COLLECTED VALUE (%$)"]),
+                milestones: [], 
+                invoices: row["Invoices Amount ($)"] ? [{ id: Date.now(), amount: cleanMoney(row["Invoices Amount ($)"]), status: row["Pending_Paid"] || "Pending" }] : [],
+                issues: row["Issues"] ? [{ id: Date.now(), title: row["Issues"], status: "Open" }] : [],
+                notes: row["Notes"] ? [row["Notes"]] : [],
+              };
+            });
+            setProjects(liveProjects);
+          }
         });
       });
   }, []);
