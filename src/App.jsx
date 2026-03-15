@@ -1,11 +1,10 @@
-import BidTrackerPro from './ Bid_Tracker_Pro.jsx'
+import React from 'react';
+import BidTrackerPro from './Bid_Tracker_Pro.jsx';
 
 function App() {
   return (
-    <div className="min-h-screen bg-slate-950 p-4">
-      <BidTrackerPro />
-    </div>
-  )
+    <BidTrackerPro />
+  );
 }
 
-export default App
+export default App;

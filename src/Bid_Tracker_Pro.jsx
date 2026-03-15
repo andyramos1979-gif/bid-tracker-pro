@@ -812,12 +812,8 @@ function GeoPerformanceView({ bids }) {
              </div>
           </div>
           
-          <div className="flex-1 flex items-center justify-center w-full mt-4 [&>svg]:w-full [&>svg]:max-w-3xl [&>svg]:h-auto [&_path]:stroke-slate-950 [&_path]:stroke-[1.5px] cursor-pointer relative z-10">
-            <USAMap 
-              customize={mapConfig} 
-              onClick={handleMapClick} 
-              defaultFill="#1e293b" 
-            />
+          <div className="flex-1 flex items-center justify-center w-full mt-4 [&>svg]:w-full [&>svg]:max-w-3xl [&>svg]:h-auto [&_path]:fill-slate-800 [&_path]:stroke-slate-950 [&_path]:stroke-[1.5px] hover:[&_path]:fill-slate-700 cursor-pointer relative z-10">
+            <USAMap customize={mapConfig} onClick={handleMapClick} />
           </div>
 
           {selectedState && (
