@@ -106,7 +106,11 @@ function Countdown({ dueDate, compact }) {
   useEffect(() => {
     const calc = () => {
       if (!dueDate) return setTimeLeft({ expired: false, missing: true });
-      const diff = new Date(dueDate + "T23:59:59") - new Date();
+      const parsed = new Date(dueDate);
+      if (isNaN(parsed)) return setTimeLeft({ expired: false, missing: true });
+      const dateStr = parsed.toISOString().split("T")[0];
+      const target = new Date(dateStr + "T23:59:59");
+      const diff = target - new Date();
       if (diff <= 0) return setTimeLeft({ expired: true });
       setTimeLeft({
         days:  Math.floor(diff / 86400000),
@@ -323,6 +327,20 @@ function BidModal({ bid, onClose, onSave, onDelete, toast }) {
 
           {tab === "notes" && (
             <div className="flex flex-col h-full">
+              <div className="flex flex-wrap gap-3 mb-4">
+                <button onClick={() => fetch('/open-estimating')}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-slate-800 border border-slate-700 hover:border-sky-500 text-sky-400 hover:text-sky-300 text-sm font-medium transition-all">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                  Open Estimating Folder
+                </button>
+                {form.link && (
+                  <a href={form.link} target="_blank" rel="noreferrer"
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-slate-800 border border-slate-700 hover:border-emerald-500 text-emerald-400 hover:text-emerald-300 text-sm font-medium transition-all">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                    Open Bid Link
+                  </a>
+                )}
+              </div>
               <div className="flex gap-3 mb-6">
                 <input value={newNote} onChange={e => setNewNote(e.target.value)} onKeyDown={e => e.key === "Enter" && addNote()}
                   placeholder="Type a note and press Enter..."
@@ -985,7 +1003,15 @@ export default function BidTrackerPro() {
           complete: (result) => {
             const liveData = result.data.map((row, i) => {
               let rawDate = row["Current Date Offers Due"];
-              let formattedDate = rawDate ? (isNaN(new Date(rawDate).getTime()) ? String(rawDate).trim() : new Date(rawDate).toISOString().split("T")[0]) : "";
+              let formattedDate = "";
+              if (rawDate) {
+                const s = String(rawDate).trim();
+                const us = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+                const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+                if (us) formattedDate = `${us[3]}-${us[1].padStart(2,"0")}-${us[2].padStart(2,"0")}`;
+                else if (iso) formattedDate = `${iso[1]}-${iso[2]}-${iso[3]}`;
+                else { const d = new Date(s); if (!isNaN(d)) formattedDate = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
+              }
               return {
                 id:            row["Notice ID:"] || `sheet-row-${i}`,
                 status:        row["STATUS"]     || "Open",
@@ -1000,6 +1026,7 @@ export default function BidTrackerPro() {
                 priority:      "Medium",
                 category:      "Electrical",
                 starred:       false,
+                link:          row["link"] || "",
                 notes:         [],
                 chk_sf1449: false, chk_sow_pws: false, chk_pricing: false,
                 chk_past_perf: false, chk_osha_safety: false, chk_licenses: false,
@@ -1085,6 +1112,9 @@ export default function BidTrackerPro() {
         (!search || [b.title, b.city, b.state, b.facility, b.contractor].some(f => f && String(f).toLowerCase().includes(search.toLowerCase())))
       )
       .sort((a, b) => {
+        const statusOrder = { Open: 0, Awarded: 1, Closed: 2 };
+        const sa = statusOrder[a.status] ?? 1, sb = statusOrder[b.status] ?? 1;
+        if (sa !== sb) return sa - sb;
         let av = a[sortKey] || "", bv = b[sortKey] || "";
         if (sortKey === "dueDate") { av = new Date(av); bv = new Date(bv); }
         return sortDir === "asc" ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1);
