@@ -1,13 +1,17 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
+import "./FuturisticCard.css";
+import CompactSystemHealth from "./CompactSystemHealth";
+import TodoPanel from "./TodoPanel";
 import Papa from "papaparse";
 import USAMap from "react-usa-map";
 import {
   Zap, LayoutGrid, List as ListIcon, Star, Plus, Download, X, Search,
-  ChevronUp, ChevronDown, ChevronsUpDown, CheckCircle2,
+  ChevronUp, ChevronDown, ChevronsUpDown, ChevronRight, CheckCircle2,
   FileText, DollarSign, BarChart2, HardHat, Building, Mail,
   ShieldCheck, Trash2, ClipboardCheck, ArrowRight, Save,
   Briefcase, FolderKanban, AlertTriangle, TrendingUp, CheckSquare, Wallet,
-  AlertCircle, Play, Pause, Activity, Globe
+  AlertCircle, Play, Pause, Activity, Globe, Sun, Moon,
+  Layers, Trophy
 } from "lucide-react";
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
@@ -21,7 +25,7 @@ const CHECK_FIELDS = [
   { key: "chk_licenses",  label: "Licenses",  Icon: CheckCircle2 },
   { key: "chk_site_visit",label: "Site Visit",Icon: Building },
   { key: "chk_sub_loi",   label: "Sub LOI",   Icon: Mail },
-  { key: "chk_compliance",label: "Compliance",Icon: ShieldCheck },
+  { key: "chk_compliance",label: "Bid Submitted",Icon: ShieldCheck },
 ];
 
 const OPS_SCHEMA = [
@@ -192,7 +196,7 @@ function KanbanView({ bids, onSelect, onToggleStar, isMobileView }) {
   return (
     <div className="flex gap-6 overflow-x-auto pb-6 min-h-[400px]">
       {cols.map(col => {
-        const colBids = (bids || []).filter(b => b.status === col);
+        const colBids = (bids || []).filter(b => (b.status === col || (col === "Closed" && b.status === "Open" && b.dueDate && new Date(b.dueDate) < new Date())));
         const style   = STATUS_COLORS[col] || STATUS_COLORS["Open"];
         return (
           <div key={col} className="min-w-[320px] flex-1">
@@ -266,6 +270,12 @@ function BidModal({ bid, onClose, onSave, onDelete, toast }) {
                 <span className="px-2.5 py-1 rounded text-xs font-medium bg-sky-500/10 text-sky-400 border border-sky-500/20">{form.category || "General"}</span>
               </div>
               <h2 className="text-xl font-bold text-white leading-snug">{form.title}</h2>
+              {form.chk_compliance && (
+                <div className={`flex items-center gap-2 font-extrabold text-xs uppercase tracking-wider px-3 py-1.5 rounded-xl mt-3 w-fit ${form.wonLoss === "No" ? "bg-rose-500 text-white" : "bg-amber-400 text-slate-900"}`}>
+                  <CheckCircle2 className={`w-4 h-4 flex-shrink-0 ${form.wonLoss === "No" ? "text-rose-200" : "text-emerald-700"}`} />
+                  BID PACKAGE SUBMITTED
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-4 flex-shrink-0">
               <ProgressRing pct={pct} size={48} stroke={4} />
@@ -275,10 +285,10 @@ function BidModal({ bid, onClose, onSave, onDelete, toast }) {
             </div>
           </div>
           <div className="flex gap-6 border-b border-slate-800">
-            {["details", "checklist", "notes"].map(t => (
+            {["details", "checklist", "notes", "link", "files"].map(t => (
               <button key={t} onClick={() => setTab(t)}
                 className={`pb-3 text-sm font-semibold capitalize border-b-2 transition-colors ${tab === t ? "border-sky-400 text-sky-400" : "border-transparent text-slate-400 hover:text-slate-300"}`}>
-                {t}
+                {t === "link" ? "🔗 SAM Link" : t === "files" ? "📁 Files" : t}
               </button>
             ))}
           </div>
@@ -298,6 +308,42 @@ function BidModal({ bid, onClose, onSave, onDelete, toast }) {
                 <InputField label="Status"   value={form.status}   onChange={e => set("status",   e.target.value)} as="select" options={["Open", "Closed", "Awarded"]} />
                 <InputField label="Priority" value={form.priority} onChange={e => set("priority", e.target.value)} as="select" options={["Critical", "High", "Medium", "Low"]} />
               </div>
+
+              {/* Won / Loss toggle */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Won / Loss</label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => set("wonLoss", form.wonLoss === "Yes" ? "" : "Yes")}
+                    className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-bold border transition-all ${
+                      form.wonLoss === "Yes"
+                        ? "bg-emerald-500/20 border-emerald-500/50 text-emerald-400"
+                        : "bg-slate-800 border-slate-700 text-slate-400 hover:border-emerald-500/40 hover:text-emerald-400"
+                    }`}>
+                    <Trophy className="w-4 h-4" /> Yes — Won
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => set("wonLoss", form.wonLoss === "No" ? "" : "No")}
+                    className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-bold border transition-all ${
+                      form.wonLoss === "No"
+                        ? "bg-rose-500/20 border-rose-500/50 text-rose-400"
+                        : "bg-slate-800 border-slate-700 text-slate-400 hover:border-rose-500/40 hover:text-rose-400"
+                    }`}>
+                    <X className="w-4 h-4" /> No — Lost
+                  </button>
+                  {form.wonLoss && (
+                    <button
+                      type="button"
+                      onClick={() => set("wonLoss", "")}
+                      className="px-3 py-2 rounded-lg text-xs text-slate-500 hover:text-slate-300 transition-colors">
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+
               <InputField label="Reason / Description" value={form.reason} onChange={e => set("reason", e.target.value)} as="textarea" placeholder="Provide context or reason for current status..." />
             </div>
           )}
@@ -363,6 +409,62 @@ function BidModal({ bid, onClose, onSave, onDelete, toast }) {
                   );
                 })}
               </div>
+            </div>
+          )}
+
+          {tab === "link" && (
+            <div className="flex flex-col gap-5 max-w-2xl mx-auto w-full">
+              {form.link ? (
+                <a href={form.link} target="_blank" rel="noreferrer"
+                  className="flex items-center gap-3 px-6 py-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-bold text-sm hover:bg-emerald-500/20 transition-all group">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                  <span className="flex-1 break-all">{form.link}</span>
+                  <ArrowRight className="w-4 h-4 opacity-60 group-hover:opacity-100" />
+                </a>
+              ) : (
+                <div className="text-slate-500 text-sm text-center py-6 bg-slate-900/50 rounded-xl border border-dashed border-slate-800">
+                  No SAM link yet — add one below.
+                </div>
+              )}
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col gap-3">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">SAM.gov Solicitation URL</label>
+                <input
+                  value={form.link || ""}
+                  onChange={e => set("link", e.target.value)}
+                  placeholder="https://sam.gov/workspace/contract/opp/..."
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2.5 text-sm text-slate-200 outline-none focus:border-sky-500 font-mono"
+                />
+                <p className="text-xs text-slate-600">Paste the SAM.gov solicitation link. It will be saved when you click Save Changes.</p>
+              </div>
+            </div>
+          )}
+
+          {tab === "files" && (
+            <div className="flex flex-col gap-5 max-w-2xl mx-auto w-full">
+              {form.folderPath ? (
+                <>
+                  <button
+                    onClick={() => fetch(`/api/open-folder?path=${encodeURIComponent(form.folderPath)}`)}
+                    className="flex items-center gap-3 px-6 py-4 rounded-xl bg-sky-500/10 border border-sky-500/30 text-sky-400 font-bold text-sm hover:bg-sky-500/20 transition-all group text-left w-full">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-bold text-sky-300 mb-0.5">Open Estimate Folder in Finder</div>
+                      <div className="text-xs text-sky-500/70 font-mono truncate">{form.folderPath.split("/").slice(-1)[0]}</div>
+                    </div>
+                    <ArrowRight className="w-4 h-4 opacity-60 group-hover:opacity-100 flex-shrink-0" />
+                  </button>
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Full Path</p>
+                    <p className="text-xs text-slate-500 font-mono break-all">{form.folderPath}</p>
+                  </div>
+                </>
+              ) : (
+                <div className="text-slate-500 text-sm text-center py-12 bg-slate-900/50 rounded-xl border border-dashed border-slate-800">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-10 h-10 mx-auto mb-3 text-slate-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                  No estimate folder created yet.<br />
+                  <span className="text-xs text-slate-600 mt-1 block">Run <code className="bg-slate-800 px-1 rounded">create_estimate_folders.py</code> to generate it.</span>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -437,55 +539,583 @@ function AddBidModal({ onClose, onAdd }) {
 // ─── PROJECTS COMPONENTS ─────────────────────────────────────────────────────
 
 function ProjectCard({ project, onClick, isMobileView }) {
-  const pStyle             = PROJECT_STATUS[project.status] || PROJECT_STATUS["In Progress"];
   const completedMilestones = (project.milestones || []).filter(m => m.completed).length;
   const totalMilestones    = (project.milestones || []).length;
+  const latestMilestone    = [...(project.milestones || [])].reverse().find(m => !m.completed)?.title
+                           || (project.milestones || []).slice(-1)[0]?.title
+                           || null;
+  const progress           = Math.max(0, Math.min(100, Number(project.progress) || 0));
+  const collectedK         = ((project.collectedValue || 0) / 1000).toFixed(0);
+  const contractK          = `$${((project.contractValue || 0) / 1000).toFixed(0)}k`;
+
+  /* map project status to a badge label */
+  const statusLabel = project.status === "In Progress" ? "ACTIVE RUN"
+                    : project.status === "On Hold"     ? "ON HOLD"
+                    : project.status === "Completed"   ? "COMPLETED"
+                    :                                    project.status?.toUpperCase() || "ACTIVE";
 
   return (
-    <div onClick={() => !isMobileView && onClick(project)}
-      className={`bg-slate-900 border border-slate-800 rounded-2xl p-5 relative overflow-hidden shadow-sm transition-all group ${isMobileView ? "" : "cursor-pointer hover:border-slate-600 hover:shadow-md"}`}>
-      <div className="flex justify-between items-start mb-4">
-        <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${pStyle.bg} ${pStyle.border} ${pStyle.text}`}>{project.status}</span>
-        <span className="text-slate-500 text-xs font-semibold">{project.phase}</span>
-      </div>
+    <section
+      className="fxCard"
+      onClick={() => !isMobileView && onClick(project)}
+      aria-label={`${project.title} project card`}
+    >
+      <div className="fxCard__fx" aria-hidden="true" />
+      <div className="fxCard__content">
 
-      <h3 className="text-slate-200 text-lg font-bold leading-tight mb-1 group-hover:text-blue-400 transition-colors line-clamp-1">{project.title}</h3>
-      <p className="text-slate-400 text-sm flex items-center gap-1.5 mb-5"><Building className="w-3.5 h-3.5" /> {project.facility}</p>
+        {/* Header */}
+        <header className="fxCard__header">
+          <div className="fxBadge" role="status" aria-label={`Status: ${statusLabel}`}>
+            <span className="fxBadge__icon" aria-hidden="true">
+              {/* shield icon */}
+              <svg viewBox="0 0 24 24" width="15" height="15">
+                <path d="M12 2l8 4v6c0 6-4 10-8 10S4 18 4 12V6l8-4z"
+                  fill="none" stroke="currentColor" strokeWidth="1.6" />
+                <path d="M9 12l2 2 4-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+            </span>
+            <span className="fxBadge__text">{statusLabel}</span>
+          </div>
+          <div className="fxCard__category">{project.phase || "Procurement"}</div>
+        </header>
 
-      <div className="mb-4">
-        <div className="flex justify-between items-end mb-1.5">
-          <span className="text-xs font-bold text-slate-400">Progress</span>
-          <span className="text-xs font-mono font-bold text-blue-400">{project.progress}%</span>
+        {/* Title */}
+        <div className="fxCard__titleBlock">
+          <h2 className="fxCard__title">{project.title}</h2>
+          <div className="fxCard__location">
+            <span className="fxCard__locationIcon" aria-hidden="true">
+              {/* building icon */}
+              <svg viewBox="0 0 24 24" width="14" height="14">
+                <path d="M3 21V7l9-4 9 4v14" fill="none" stroke="currentColor" strokeWidth="1.6" />
+                <path d="M9 21v-6h6v6" fill="none" stroke="currentColor" strokeWidth="1.6" />
+                <line x1="12" y1="8" x2="12" y2="11" stroke="currentColor" strokeWidth="1.6" />
+              </svg>
+            </span>
+            <span>{project.facility}</span>
+          </div>
         </div>
-        <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
-          <div className="bg-blue-500 h-full rounded-full transition-all duration-500" style={{ width: `${project.progress}%` }} />
-        </div>
-      </div>
 
-      <div className="grid grid-cols-2 gap-3 mb-5">
-        <div className="bg-slate-950/50 rounded-lg p-2.5 border border-slate-800/50">
-          <div className="text-[10px] text-slate-500 uppercase font-bold mb-1 flex items-center gap-1"><Wallet className="w-3 h-3" /> Collected</div>
-          <div className="text-sm font-mono font-bold text-emerald-400">${(project.collectedValue / 1000).toFixed(0)}k <span className="text-slate-600 text-xs">/ ${(project.contractValue / 1000).toFixed(0)}k</span></div>
+        {/* Progress Ring */}
+        <div className="fxRingWrap">
+          <div className="fxRing" style={{ "--p": progress }}>
+            <div className="fxRing__dot" aria-hidden="true" />
+            <div className="fxRing__core">
+              <div className="fxRing__value">{progress}%</div>
+            </div>
+          </div>
+          <div className="fxRing__label">Progress</div>
         </div>
-        <div className="bg-slate-950/50 rounded-lg p-2.5 border border-slate-800/50">
-          <div className="text-[10px] text-slate-500 uppercase font-bold mb-1 flex items-center gap-1"><CheckSquare className="w-3 h-3" /> Milestones</div>
-          <div className="text-sm font-mono font-bold text-slate-300">{completedMilestones} <span className="text-slate-600 text-xs">/ {totalMilestones} Done</span></div>
-        </div>
-      </div>
 
-      <div className="flex gap-1 mb-5">
-        {(project.milestones || []).map(m => (
-          <div key={m.id} title={m.title} className={`flex-1 h-1.5 rounded-full ${m.completed ? "bg-emerald-500" : "bg-slate-800"}`} />
-        ))}
-      </div>
+        {/* Metric Tiles */}
+        <div className="fxMetrics">
+          <div className="fxTile fxTile--green">
+            <div className="fxTile__top">
+              <div className="fxTile__label">Collected</div>
+              <div className="fxTile__value">
+                <span className="fxTile__valueStrong">${collectedK}k</span>
+                <span className="fxTile__valueDim"> / {contractK}</span>
+              </div>
+            </div>
+            <div className="fxTile__icon" aria-hidden="true">
+              {/* coin stack icon */}
+              <svg viewBox="0 0 24 24" width="30" height="30">
+                <ellipse cx="12" cy="6" rx="7" ry="3" fill="currentColor" opacity=".85" />
+                <path d="M5 6v4c0 1.65 3.13 3 7 3s7-1.35 7-3V6" fill="none" stroke="currentColor" strokeWidth="1.5" opacity=".8" />
+                <path d="M5 10v4c0 1.65 3.13 3 7 3s7-1.35 7-3v-4" fill="none" stroke="currentColor" strokeWidth="1.5" opacity=".65" />
+              </svg>
+            </div>
+          </div>
 
-      <div className="flex justify-between items-center pt-4 border-t border-slate-800/50">
-        <div className="flex -space-x-2">
-          <div className="w-7 h-7 rounded-full bg-blue-600 border-2 border-slate-900 flex items-center justify-center text-[10px] font-bold text-white">AR</div>
-          <div className="w-7 h-7 rounded-full bg-emerald-600 border-2 border-slate-900 flex items-center justify-center text-[10px] font-bold text-white">JS</div>
+          <div className="fxTile">
+            <div className="fxTile__top">
+              <div className="fxTile__label">Milestones</div>
+              <div className="fxTile__value">
+                <span className="fxTile__valueStrong">{completedMilestones}</span>
+                <span className="fxTile__valueDim"> / {totalMilestones} Done</span>
+              </div>
+              {latestMilestone && (
+                <div style={{ fontSize: "9px", color: "#94a3b8", marginTop: "4px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }} title={latestMilestone}>
+                  {latestMilestone}
+                </div>
+              )}
+            </div>
+            <div className="fxTile__icon fxTile__icon--neutral" aria-hidden="true">
+              {/* clipboard icon */}
+              <svg viewBox="0 0 24 24" width="27" height="27">
+                <path d="M9 4h6l1 2H8L9 4z" fill="none" stroke="currentColor" strokeWidth="1.5" />
+                <rect x="5" y="5" width="14" height="16" rx="2" fill="none" stroke="currentColor" strokeWidth="1.5" />
+                <path d="M8 11h8M8 15h8" stroke="currentColor" strokeWidth="1.5" opacity=".85" />
+                <path d="M8 11l1.4 1.4L12 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+            </div>
+          </div>
         </div>
-        <Countdown dueDate={project.endDate} compact />
+
+        {/* Footer */}
+        <footer className="fxFooter">
+          <div className="fxAvatars" aria-label="Assigned team">
+            <div className="fxAvatar fxAvatar--blue">AR</div>
+            <div className="fxAvatar fxAvatar--gray">JS</div>
+          </div>
+          <div className="fxTarget">
+            <div className="fxTarget__label">Target Date:</div>
+            <div className="fxTarget__row">
+              {project.endDate
+                ? <span className="fxTarget__countdown"><Countdown dueDate={project.endDate} compact /></span>
+                : null}
+              <span className="fxTarget__status">
+                {project.status === "Completed" ? "DONE" : "PENDING"}
+              </span>
+            </div>
+          </div>
+        </footer>
+
       </div>
+    </section>
+  );
+}
+
+// ── Cyber Stats Panel sub-icons ─────────────────────────────────────────────
+
+function CsIconPlayBox({ c }) {
+  return (
+    <svg viewBox="0 0 68 54" width="68" height="54" fill="none">
+      {/* body */}
+      <rect x="4" y="12" width="60" height="38" rx="3" stroke={c} strokeWidth="1.4" fill={c + "12"}/>
+      {/* top strip */}
+      <rect x="4" y="5"  width="60" height="9"  rx="2" stroke={c} strokeWidth="1.4" fill={c + "22"}/>
+      {/* inner frame */}
+      <rect x="10" y="18" width="48" height="26" rx="2" stroke={c} strokeWidth="0.8" opacity="0.45"/>
+      {/* corner dots */}
+      <circle cx="8"  cy="9.5" r="1.8" fill={c}/>
+      <circle cx="60" cy="9.5" r="1.8" fill={c}/>
+      {/* play triangle */}
+      <path d="M26 24 L44 31 L26 38 Z" fill={c}/>
+      {/* side connectors */}
+      <line x1="0" y1="26" x2="4" y2="26" stroke={c} strokeWidth="1.5"/>
+      <line x1="64" y1="26" x2="68" y2="26" stroke={c} strokeWidth="1.5"/>
+      <line x1="0" y1="33" x2="4" y2="33" stroke={c} strokeWidth="1"/>
+      <line x1="64" y1="33" x2="68" y2="33" stroke={c} strokeWidth="1"/>
+    </svg>
+  );
+}
+
+function CsIconRings({ c }) {
+  const ticks = Array.from({ length: 16 }, (_, i) => {
+    const a = ((i * 22.5) - 90) * Math.PI / 180;
+    return {
+      x1: 27 + 23 * Math.cos(a), y1: 27 + 23 * Math.sin(a),
+      x2: 27 + 20 * Math.cos(a), y2: 27 + 20 * Math.sin(a),
+    };
+  });
+  return (
+    <svg viewBox="0 0 54 54" width="54" height="54" fill="none">
+      <circle cx="27" cy="27" r="25" stroke={c} strokeWidth="1.4" opacity="0.9"/>
+      {ticks.map((t, i) => (
+        <line key={i} x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2} stroke={c} strokeWidth="1.4"/>
+      ))}
+      <circle cx="27" cy="27" r="18" stroke={c} strokeWidth="1"   opacity="0.55"/>
+      <circle cx="27" cy="27" r="11" stroke={c} strokeWidth="1"   opacity="0.45"/>
+      <circle cx="27" cy="27" r="7"  fill={c + "30"} stroke={c} strokeWidth="1.4"/>
+      <path d="M24 23.5 L32 27 L24 30.5 Z" fill={c}/>
+    </svg>
+  );
+}
+
+function CsIconLockBox({ c }) {
+  return (
+    <svg viewBox="0 0 68 54" width="68" height="54" fill="none">
+      {/* box */}
+      <rect x="10" y="20" width="48" height="30" rx="3" stroke={c} strokeWidth="1.4" fill={c + "12"}/>
+      <rect x="10" y="14" width="48" height="8"  rx="2" stroke={c} strokeWidth="1.4" fill={c + "22"}/>
+      {/* padlock body */}
+      <rect x="26" y="5"  width="16" height="13" rx="3" stroke={c} strokeWidth="1.4" fill={c + "18"}/>
+      {/* shackle */}
+      <path d="M29 5 Q29 0 34 0 Q39 0 39 5" stroke={c} strokeWidth="1.4" fill="none"/>
+      {/* keyhole */}
+      <circle cx="34" cy="10" r="2.2" fill={c}/>
+      <rect x="33" y="10" width="2" height="4" fill={c}/>
+      {/* chain left */}
+      <path d="M6 24 Q3 28 6 32 Q9 36 6 40 Q3 44 6 48" stroke={c} strokeWidth="2.2" strokeLinecap="round" fill="none" opacity="0.85"/>
+      {/* chain right */}
+      <path d="M62 24 Q65 28 62 32 Q59 36 62 40 Q65 44 62 48" stroke={c} strokeWidth="2.2" strokeLinecap="round" fill="none" opacity="0.85"/>
+      {/* rivets */}
+      <circle cx="16" cy="21" r="1.5" fill={c} opacity="0.7"/>
+      <circle cx="52" cy="21" r="1.5" fill={c} opacity="0.7"/>
+    </svg>
+  );
+}
+
+function CsIconHexGrid({ c }) {
+  const hex = (cx, cy, r) => {
+    const pts = Array.from({ length: 6 }, (_, i) => {
+      const a = (i * 60 - 30) * Math.PI / 180;
+      return `${(cx + r * Math.cos(a)).toFixed(1)},${(cy + r * Math.sin(a)).toFixed(1)}`;
+    });
+    return `M${pts.join("L")}Z`;
+  };
+  const pos = [
+    [16,14],[34,14],[52,14],
+    [16,38],[34,38],[52,38],
+  ];
+  return (
+    <svg viewBox="0 0 68 54" width="68" height="54" fill="none">
+      {pos.map(([cx, cy], i) => (
+        <g key={i}>
+          <path d={hex(cx, cy, 12)} stroke={c} strokeWidth="1.2" fill={c + "10"}/>
+          {/* tiny lock */}
+          <rect x={cx-3.5} y={cy-0.5} width="7" height="5.5" rx="1" stroke={c} strokeWidth="0.9"/>
+          <path d={`M${cx-2} ${cy-0.5} Q${cx-2} ${cy-3.8} ${cx} ${cy-3.8} Q${cx+2} ${cy-3.8} ${cx+2} ${cy-0.5}`}
+            stroke={c} strokeWidth="0.9" fill="none"/>
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+function CsIconIsoCube({ c }) {
+  return (
+    <svg viewBox="0 0 68 54" width="68" height="54" fill="none">
+      {/* top face */}
+      <path d="M34 4 L58 18 L34 32 L10 18 Z" stroke={c} strokeWidth="1.4" fill={c + "28"}/>
+      {/* left face */}
+      <path d="M10 18 L10 40 L34 50 L34 32 Z" stroke={c} strokeWidth="1.4" fill={c + "10"}/>
+      {/* right face */}
+      <path d="M58 18 L58 40 L34 50 L34 32 Z" stroke={c} strokeWidth="1.4" fill={c + "1A"}/>
+      {/* checkmark on top */}
+      <path d="M24 17 L31 25 L46 10" stroke={c} strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+}
+
+function CsIconHoneycomb({ c }) {
+  const hex = (cx, cy, r) => {
+    const pts = Array.from({ length: 6 }, (_, i) => {
+      const a = i * 60 * Math.PI / 180;
+      return `${(cx + r * Math.cos(a)).toFixed(1)},${(cy + r * Math.sin(a)).toFixed(1)}`;
+    });
+    return `M${pts.join("L")}Z`;
+  };
+  const r = 9, cols = 4, rows = 3;
+  const pos = [];
+  for (let row = 0; row < rows; row++)
+    for (let col = 0; col < cols; col++)
+      pos.push([col * r * 1.5 + 12, row * r * 1.732 + (col % 2 === 0 ? 10 : 18)]);
+  return (
+    <svg viewBox="0 0 68 54" width="68" height="54" fill="none" style={{ overflow: "hidden" }}>
+      {pos.map(([cx, cy], i) => (
+        <path key={i} d={hex(cx, cy, r)} stroke={c} strokeWidth="1" fill={c + "14"}/>
+      ))}
+    </svg>
+  );
+}
+
+function CsIconSiren({ c }) {
+  return (
+    <svg viewBox="0 0 68 54" width="68" height="54" fill="none">
+      {/* spinning rays group */}
+      <g className="csSirenRays">
+        <line x1="34" y1="6"  x2="34" y2="0"  stroke={c} strokeWidth="2"   strokeLinecap="round"/>
+        <line x1="48" y1="10" x2="54" y2="4"  stroke={c} strokeWidth="2"   strokeLinecap="round"/>
+        <line x1="20" y1="10" x2="14" y2="4"  stroke={c} strokeWidth="2"   strokeLinecap="round"/>
+        <line x1="56" y1="24" x2="63" y2="20" stroke={c} strokeWidth="1.6" strokeLinecap="round"/>
+        <line x1="12" y1="24" x2="5"  y2="20" stroke={c} strokeWidth="1.6" strokeLinecap="round"/>
+        <line x1="58" y1="36" x2="65" y2="36" stroke={c} strokeWidth="1.4" strokeLinecap="round"/>
+        <line x1="10" y1="36" x2="3"  y2="36" stroke={c} strokeWidth="1.4" strokeLinecap="round"/>
+      </g>
+      {/* dome */}
+      <path d="M14 44 Q14 18 34 18 Q54 18 54 44" stroke={c} strokeWidth="1.4" fill={c + "14"}/>
+      {/* inner light */}
+      <ellipse cx="34" cy="36" rx="11" ry="9" fill={c + "35"} stroke={c} strokeWidth="1"/>
+      <ellipse cx="34" cy="36" rx="5"  ry="4" fill={c} opacity="0.85"/>
+      {/* base */}
+      <rect x="20" y="43" width="28" height="6" rx="2" stroke={c} strokeWidth="1.4" fill={c + "20"}/>
+      <rect x="16" y="48" width="36" height="4" rx="1" fill={c + "30"} stroke={c} strokeWidth="1"/>
+    </svg>
+  );
+}
+
+function CsIconWaveform({ c }) {
+  return (
+    <svg viewBox="0 0 68 54" width="68" height="54" fill="none">
+      {/* grid */}
+      {[10,22,33,44].map(y => (
+        <line key={y} x1="0" y1={y} x2="68" y2={y} stroke={c} strokeWidth="0.35" opacity="0.25"/>
+      ))}
+      {[0,17,34,51,68].map(x => (
+        <line key={x} x1={x} y1="0" x2={x} y2="54" stroke={c} strokeWidth="0.35" opacity="0.25"/>
+      ))}
+      {/* erratic waveform */}
+      <polyline
+        points="0,27 5,25 10,10 15,30 20,34 26,12 31,38 36,18 41,40 46,8 52,32 57,20 62,36 68,25"
+        stroke={c} strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+      {/* data points */}
+      {[[10,10],[26,12],[41,40],[46,8]].map(([x,y], i) => (
+        <circle key={i} cx={x} cy={y} r="2.2" fill={c}/>
+      ))}
+    </svg>
+  );
+}
+
+function CsIconUpArrow({ c }) {
+  return (
+    <svg viewBox="0 0 44 54" width="44" height="54" fill="none">
+      {/* shaft */}
+      <rect x="17" y="24" width="10" height="26" rx="2" fill={c + "2A"} stroke={c} strokeWidth="1.4"/>
+      {/* head */}
+      <path d="M5 26 L22 4 L39 26 Z" fill={c + "50"} stroke={c} strokeWidth="1.4"/>
+      {/* tip glow dot */}
+      <circle cx="22" cy="7"  r="2.2" fill={c} opacity="0.8"/>
+      <circle cx="13" cy="20" r="1.5" fill={c} opacity="0.35"/>
+      <circle cx="31" cy="20" r="1.5" fill={c} opacity="0.35"/>
+    </svg>
+  );
+}
+
+function CsIconWaveCurve({ c }) {
+  return (
+    <svg viewBox="0 0 68 54" width="68" height="54" fill="none">
+      <g className="csWaveGroup">
+        {/* fill */}
+        <path d="M0 38 Q10 20 20 30 Q30 40 40 20 Q50 0 60 14 L68 10 L68 54 L0 54 Z"
+          fill={c + "12"}/>
+        {/* line */}
+        <path d="M0 38 Q10 20 20 30 Q30 40 40 20 Q50 0 60 14 L68 10"
+          stroke={c} strokeWidth="2" fill="none" strokeLinecap="round"/>
+        {/* dots */}
+        <circle cx="20" cy="30" r="2"   fill={c} opacity="0.65"/>
+        <circle cx="40" cy="20" r="2"   fill={c} opacity="0.65"/>
+        <circle cx="60" cy="14" r="2"   fill={c} opacity="0.65"/>
+        {/* glowing star at end */}
+        <circle cx="67" cy="10" r="3.5" fill={c} opacity="0.90"/>
+        <circle cx="67" cy="10" r="6"   fill={c} opacity="0.20"/>
+        <line x1="67" y1="5"  x2="67" y2="1"  stroke={c} strokeWidth="1.2" opacity="0.6"/>
+        <line x1="72" y1="10" x2="76" y2="10" stroke={c} strokeWidth="1.2" opacity="0.6"/>
+        <line x1="62" y1="10" x2="58" y2="10" stroke={c} strokeWidth="1.2" opacity="0.6"/>
+        <line x1="71" y1="6"  x2="74" y2="3"  stroke={c} strokeWidth="1"   opacity="0.5"/>
+        <line x1="63" y1="6"  x2="60" y2="3"  stroke={c} strokeWidth="1"   opacity="0.5"/>
+      </g>
+    </svg>
+  );
+}
+
+function CyberStatsPanel({ stats }) {
+  const portfolioK = `$${(stats.portfolioValue / 1000).toFixed(0)}K`;
+
+  const cards = [
+    { label: "ACTIVE",    value: stats.active,     icon: <Play size={18} />,          color: "sky",    gradient: "from-sky-500 to-blue-600",      shadow: "shadow-sky-500/20",    showRing: true,  showPct: true  },
+    { label: "ON HOLD",   value: stats.onHold,     icon: <Pause size={18} />,          color: "orange", gradient: "from-orange-600 to-amber-600",  shadow: "shadow-orange-500/20", showRing: true,  showPct: false },
+    { label: "COMPLETED", value: stats.completed,  icon: <CheckCircle2 size={18} />,   color: "emerald",gradient: "from-emerald-600 to-teal-600",  shadow: "shadow-emerald-500/20",showRing: false, showPct: false },
+    { label: "OPEN ISSUES",value: stats.openIssues,icon: <AlertCircle size={18} />,    color: "rose",   gradient: "from-rose-600 to-red-600",      shadow: "shadow-rose-500/20",   showRing: false, showPct: false },
+    { label: "VALUE",     value: portfolioK,       icon: <TrendingUp size={18} />,     color: "purple", gradient: "from-purple-600 to-violet-600", shadow: "shadow-purple-500/20", showRing: false, showPct: false },
+  ];
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+      {cards.map((card, idx) => (
+        <div
+          key={idx}
+          className={`relative overflow-hidden p-6 rounded-[2rem] border border-white/10 transition-all hover:-translate-y-1 hover:brightness-110 ${
+            idx === 0
+              ? `bg-gradient-to-br ${card.gradient} ${card.shadow} shadow-2xl`
+              : "bg-[#151926] hover:border-white/20"
+          }`}
+        >
+          <div className="flex flex-col h-full justify-between gap-4">
+            <div className="flex justify-between items-start">
+              <p className={`text-[10px] font-black uppercase tracking-[0.2em] ${idx === 0 ? "text-white/70" : "text-slate-500"}`}>
+                {card.label}
+              </p>
+              <div className={`p-2 rounded-xl ${idx === 0 ? "bg-white/20" : `bg-${card.color}-500/10 text-${card.color}-400`}`}>
+                {card.icon}
+              </div>
+            </div>
+
+            <div className="flex items-end gap-3 mt-2">
+              {card.showRing && (
+                <div className="relative w-12 h-12">
+                  <svg className="w-12 h-12 -rotate-90">
+                    <circle cx="24" cy="24" r="20" stroke="currentColor" strokeWidth="4" fill="transparent" className={idx === 0 ? "text-white/20" : "text-slate-800"} />
+                    <circle cx="24" cy="24" r="20" stroke="currentColor" strokeWidth="4" fill="transparent" strokeDasharray="126" strokeDashoffset={126 - (126 * 63 / 100)} className={idx === 0 ? "text-white" : `text-${card.color}-500`} />
+                  </svg>
+                </div>
+              )}
+              <h3 className="text-4xl font-black tracking-tighter text-white">
+                {card.value}
+                {card.showPct && <span className="text-xl opacity-60 ml-1">%</span>}
+              </h3>
+            </div>
+
+            <div className="mt-2">
+              <button className={`text-[10px] font-bold uppercase tracking-widest flex items-center gap-1 ${idx === 0 ? "text-white/80" : "text-slate-400 hover:text-white"}`}>
+                Click to filter <ChevronRight size={12} />
+              </button>
+            </div>
+          </div>
+          <div className={`absolute -right-4 -bottom-4 w-24 h-24 blur-3xl opacity-20 rounded-full ${idx === 0 ? "bg-white" : `bg-${card.color}-500`}`} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Bids panel icons ─────────────────────────────────────────────────────────
+
+function CsIconGem({ c }) {
+  return (
+    <svg viewBox="0 0 68 54" width="68" height="54" fill="none">
+      {/* top crown */}
+      <path d="M22 18 L34 4 L46 18" stroke={c} strokeWidth="1.4" fill={c + "15"}/>
+      {/* middle band */}
+      <path d="M10 18 L22 18 L34 4 L46 18 L58 18 L34 50 Z" stroke={c} strokeWidth="1.4" fill={c + "20"}/>
+      {/* facet lines */}
+      <line x1="22" y1="18" x2="34" y2="50" stroke={c} strokeWidth="0.8" opacity="0.5"/>
+      <line x1="46" y1="18" x2="34" y2="50" stroke={c} strokeWidth="0.8" opacity="0.5"/>
+      <line x1="10" y1="18" x2="34" y2="28" stroke={c} strokeWidth="0.6" opacity="0.4"/>
+      <line x1="58" y1="18" x2="34" y2="28" stroke={c} strokeWidth="0.6" opacity="0.4"/>
+      <line x1="34" y1="4"  x2="34" y2="50" stroke={c} strokeWidth="0.6" opacity="0.35"/>
+      {/* glow highlight on top */}
+      <path d="M28 12 L34 4 L40 12 L34 16 Z" fill={c} opacity="0.40"/>
+    </svg>
+  );
+}
+
+function CsIconCircuit({ c }) {
+  return (
+    <svg viewBox="0 0 68 54" width="68" height="54" fill="none">
+      {/* horizontal rails */}
+      <line x1="0"  y1="14" x2="68" y2="14" stroke={c} strokeWidth="0.8" opacity="0.35"/>
+      <line x1="0"  y1="27" x2="68" y2="27" stroke={c} strokeWidth="0.8" opacity="0.35"/>
+      <line x1="0"  y1="40" x2="68" y2="40" stroke={c} strokeWidth="0.8" opacity="0.35"/>
+      {/* vertical rails */}
+      <line x1="12" y1="0"  x2="12" y2="54" stroke={c} strokeWidth="0.8" opacity="0.35"/>
+      <line x1="34" y1="0"  x2="34" y2="54" stroke={c} strokeWidth="0.8" opacity="0.35"/>
+      <line x1="56" y1="0"  x2="56" y2="54" stroke={c} strokeWidth="0.8" opacity="0.35"/>
+      {/* nodes at intersections */}
+      {[[12,14],[34,14],[56,14],[12,27],[34,27],[56,27],[12,40],[34,40],[56,40]].map(([x,y],i) => (
+        <circle key={i} cx={x} cy={y} r="3" stroke={c} strokeWidth="1.2" fill={c + "20"}/>
+      ))}
+      {/* highlighted nodes */}
+      <circle cx="34" cy="27" r="4.5" stroke={c} strokeWidth="1.4" fill={c + "40"}/>
+      <circle cx="12" cy="14" r="3.5" fill={c} opacity="0.7"/>
+      <circle cx="56" cy="40" r="3.5" fill={c} opacity="0.6"/>
+      {/* connection traces */}
+      <path d="M12 14 L34 14 L34 27" stroke={c} strokeWidth="1.4" fill="none"/>
+      <path d="M56 40 L34 40 L34 27" stroke={c} strokeWidth="1.4" fill="none"/>
+    </svg>
+  );
+}
+
+function CsIconCanister({ c }) {
+  return (
+    <svg viewBox="0 0 68 54" width="68" height="54" fill="none">
+      {/* body */}
+      <rect x="20" y="10" width="28" height="36" rx="4" stroke={c} strokeWidth="1.4" fill={c + "12"}/>
+      {/* top cap */}
+      <rect x="24" y="5"  width="20" height="8"  rx="2" stroke={c} strokeWidth="1.4" fill={c + "22"}/>
+      {/* bands */}
+      <line x1="20" y1="22" x2="48" y2="22" stroke={c} strokeWidth="1.2" opacity="0.6"/>
+      <line x1="20" y1="34" x2="48" y2="34" stroke={c} strokeWidth="1.2" opacity="0.6"/>
+      {/* warning stripes */}
+      <path d="M22 22 L26 34" stroke={c} strokeWidth="1.4" opacity="0.5" strokeLinecap="round"/>
+      <path d="M30 22 L34 34" stroke={c} strokeWidth="1.4" opacity="0.5" strokeLinecap="round"/>
+      <path d="M38 22 L42 34" stroke={c} strokeWidth="1.4" opacity="0.5" strokeLinecap="round"/>
+      {/* bottom base */}
+      <rect x="18" y="44" width="32" height="6" rx="2" stroke={c} strokeWidth="1.2" fill={c + "18"}/>
+      {/* warning ! */}
+      <line x1="34" y1="14" x2="34" y2="19" stroke={c} strokeWidth="2.2" strokeLinecap="round"/>
+      <circle cx="34" cy="22" r="1.2" fill={c}/>
+    </svg>
+  );
+}
+
+function CsIconMedallion({ c }) {
+  const ticks = Array.from({ length: 12 }, (_, i) => {
+    const a = (i * 30 - 90) * Math.PI / 180;
+    const r1 = 22, r2 = i % 3 === 0 ? 18 : 20;
+    return {
+      x1: 34 + r1 * Math.cos(a), y1: 28 + r1 * Math.sin(a),
+      x2: 34 + r2 * Math.cos(a), y2: 28 + r2 * Math.sin(a),
+    };
+  });
+  return (
+    <svg viewBox="0 0 68 54" width="68" height="54" fill="none">
+      {/* outer ring */}
+      <circle cx="34" cy="28" r="23" stroke={c} strokeWidth="1.4" fill="none"/>
+      {/* tick marks */}
+      {ticks.map((t, i) => (
+        <line key={i} x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2} stroke={c} strokeWidth="1.2"/>
+      ))}
+      {/* crosshair lines */}
+      <line x1="34" y1="6"  x2="34" y2="50" stroke={c} strokeWidth="0.8" opacity="0.4"/>
+      <line x1="12" y1="28" x2="56" y2="28" stroke={c} strokeWidth="0.8" opacity="0.4"/>
+      {/* mid ring */}
+      <circle cx="34" cy="28" r="14" stroke={c} strokeWidth="1"   fill={c + "10"}/>
+      {/* inner filled circle */}
+      <circle cx="34" cy="28" r="7"  fill={c + "35"} stroke={c} strokeWidth="1.4"/>
+      {/* center dot */}
+      <circle cx="34" cy="28" r="2.5" fill={c}/>
+    </svg>
+  );
+}
+
+function CyberBidsPanel({ stats, onFilter }) {
+  const pipelineK = `$${(stats.totalValue / 1000).toFixed(0)}K`;
+
+  const cards = [
+    { label: "TOTAL TRACKED",  value: stats.total,   icon: <Layers size={18} />,        color: "blue",   gradient: "from-blue-600 to-indigo-600",  shadow: "shadow-blue-500/20",   showRing: true,  showPct: true,  filterVal: "All"      },
+    { label: "ACTIVE OPEN",    value: stats.open,    icon: <CheckCircle2 size={18} />,   color: "emerald",gradient: "from-emerald-600 to-teal-600", shadow: "shadow-emerald-500/20",showRing: true,  showPct: false, filterVal: "Open"     },
+    { label: "URGENT (<3D)",   value: stats.urgent,  icon: <AlertTriangle size={18} />,  color: "orange", gradient: "from-orange-600 to-amber-600",  shadow: "shadow-orange-500/20", showRing: false, showPct: false, filterVal: "Open"     },
+    { label: "WON / AWARDED",  value: stats.awarded, icon: <Trophy size={18} />,         color: "amber",  gradient: "from-amber-500 to-yellow-600",  shadow: "shadow-amber-500/20",  showRing: false, showPct: false, filterVal: "Won"      },
+    { label: "PIPELINE VALUE", value: pipelineK,     icon: <TrendingUp size={18} />,     color: "purple", gradient: "from-purple-600 to-violet-600", shadow: "shadow-purple-500/20", showRing: false, showPct: false, filterVal: "HasAmount" },
+  ];
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+      {cards.map((card, idx) => (
+        <div
+          key={idx}
+          onClick={() => onFilter && onFilter(card.filterVal)}
+          className={`relative overflow-hidden p-6 rounded-[2rem] border border-white/10 transition-all hover:-translate-y-1 hover:brightness-110 cursor-pointer ${
+            idx === 0
+              ? `bg-gradient-to-br ${card.gradient} ${card.shadow} shadow-2xl`
+              : "bg-[#151926] hover:border-white/20"
+          }`}
+        >
+          <div className="flex flex-col h-full justify-between gap-4">
+            <div className="flex justify-between items-start">
+              <p className={`text-[10px] font-black uppercase tracking-[0.2em] ${idx === 0 ? "text-white/70" : "text-slate-500"}`}>
+                {card.label}
+              </p>
+              <div className={`p-2 rounded-xl ${idx === 0 ? "bg-white/20" : `bg-${card.color}-500/10 text-${card.color}-400`}`}>
+                {card.icon}
+              </div>
+            </div>
+
+            <div className="flex items-end gap-3 mt-2">
+              {card.showRing && (
+                <div className="relative w-12 h-12">
+                  <svg className="w-12 h-12 -rotate-90">
+                    <circle cx="24" cy="24" r="20" stroke="currentColor" strokeWidth="4" fill="transparent" className={idx === 0 ? "text-white/20" : "text-slate-800"} />
+                    <circle cx="24" cy="24" r="20" stroke="currentColor" strokeWidth="4" fill="transparent" strokeDasharray="126" strokeDashoffset={126 - (126 * 63 / 100)} className={idx === 0 ? "text-white" : `text-${card.color}-500`} />
+                  </svg>
+                </div>
+              )}
+              <h3 className="text-4xl font-black tracking-tighter text-white">
+                {card.value}
+                {card.showPct && <span className="text-xl opacity-60 ml-1">%</span>}
+              </h3>
+            </div>
+
+            <div className="mt-2">
+              <button className={`text-[10px] font-bold uppercase tracking-widest flex items-center gap-1 ${idx === 0 ? "text-white/80" : "text-slate-400 hover:text-white"}`}>
+                Click to filter <ChevronRight size={12} />
+              </button>
+            </div>
+          </div>
+          <div className={`absolute -right-4 -bottom-4 w-24 h-24 blur-3xl opacity-20 rounded-full ${idx === 0 ? "bg-white" : `bg-${card.color}-500`}`} />
+        </div>
+      ))}
     </div>
   );
 }
@@ -500,8 +1130,19 @@ function ProjectModal({ project, onClose, onSave, toast }) {
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  const toggleMilestone = (id) => set("milestones", (form.milestones || []).map(m => m.id === id ? { ...m, completed: !m.completed } : m));
-  const addMilestone    = () => { if (!newMilestone) return; set("milestones", [...(form.milestones || []), { id: Date.now(), title: newMilestone, completed: false }]); setNewMilestone(""); };
+  const toggleMilestone = (id) => {
+    const updated = { ...form, milestones: (form.milestones || []).map(m => m.id === id ? { ...m, completed: !m.completed } : m) };
+    setForm(updated);
+    onSave(updated);
+  };
+
+  const addMilestone = () => {
+    if (!newMilestone.trim()) return;
+    const updated = { ...form, milestones: [...(form.milestones || []), { id: Date.now(), title: newMilestone.trim(), completed: false }] };
+    setForm(updated);
+    setNewMilestone("");
+    onSave(updated);
+  };
 
   const addInvoice = (status) => {
     if (!newInvoiceAmt) return;
@@ -536,7 +1177,7 @@ function ProjectModal({ project, onClose, onSave, toast }) {
           </div>
 
           <div className="flex gap-6 border-b border-slate-800 overflow-x-auto">
-            {["overview", "milestones", "invoices", "issues", "notes"].map(t => (
+            {["overview", "milestones", "invoices", "issues", "notes", "files"].map(t => (
               <button key={t} onClick={() => setTab(t)}
                 className={`pb-3 text-sm font-semibold capitalize border-b-2 whitespace-nowrap transition-colors ${tab === t ? "border-blue-500 text-blue-400" : "border-transparent text-slate-400 hover:text-slate-300"}`}>
                 {t}
@@ -662,6 +1303,42 @@ function ProjectModal({ project, onClose, onSave, toast }) {
                     </div>
                   );
                 })}
+              </div>
+            </div>
+          )}
+
+          {tab === "files" && (
+            <div className="flex flex-col max-w-2xl mx-auto w-full gap-5">
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+                <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                  <Globe className="w-4 h-4 text-sky-400" /> OneDrive Project Folder
+                </div>
+                {form.onedriveFolder ? (
+                  <div className="flex flex-col gap-3">
+                    <div className="bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 font-mono text-xs text-slate-400 break-all">
+                      {form.onedriveFolder}
+                    </div>
+                    <button
+                      onClick={() => fetch(`/api/open-folder?path=${encodeURIComponent(form.onedriveFolder)}`)}
+                      className="flex items-center gap-2 px-5 py-3 rounded-xl bg-sky-500/10 border border-sky-500/30 text-sky-400 font-bold text-sm hover:bg-sky-500/20 transition-all w-fit">
+                      <ArrowRight className="w-4 h-4" /> Open in Finder
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    <p className="text-slate-500 text-sm">No folder linked yet. Enter the path to your OneDrive project folder.</p>
+                    <InputField label="OneDrive Folder Path" value={form.onedriveFolder || ""}
+                      onChange={e => set("onedriveFolder", e.target.value)}
+                      placeholder="/Users/andyramos/Library/CloudStorage/OneDrive-.../03_Project/..." />
+                    {form.onedriveFolder && (
+                      <button
+                        onClick={() => fetch(`/api/open-folder?path=${encodeURIComponent(form.onedriveFolder)}`)}
+                        className="flex items-center gap-2 px-5 py-3 rounded-xl bg-sky-500/10 border border-sky-500/30 text-sky-400 font-bold text-sm hover:bg-sky-500/20 transition-all w-fit">
+                        <ArrowRight className="w-4 h-4" /> Open in Finder
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -956,6 +1633,10 @@ export default function BidTrackerPro() {
   const [activeTab, setActiveTab] = useState("bids");
   const [isMobileView, setIsMobileView] = useState(false);
 
+  // ── Theme ──
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem("theme") !== "light");
+  useEffect(() => { localStorage.setItem("theme", darkMode ? "dark" : "light"); }, [darkMode]);
+
   useEffect(() => {
     const handleResize = () => setIsMobileView(window.innerWidth < 768);
     handleResize();
@@ -968,7 +1649,7 @@ export default function BidTrackerPro() {
   const [selectedBid, setSelectedBid] = useState(null);
   const [showAddBid, setShowAddBid] = useState(false);
   const [view, setView]             = useState("table");
-  const [filter, setFilter]         = useState("All");
+  const [filter, setFilter]         = useState("Open");
   const [catFilter, setCatFilter]   = useState("All");
   const [search, setSearch]         = useState("");
   const [sortKey, setSortKey]       = useState("dueDate");
@@ -983,105 +1664,57 @@ export default function BidTrackerPro() {
   const [bidToConvert, setBidToConvert]     = useState(null);
 
   // ── Ops state ──
-  const [showOpsModal, setShowOpsModal] = useState(false);
+  const [showOpsModal, setShowOpsModal]   = useState(false);
+  const [opsSummary,   setOpsSummary]     = useState({ failed_today: 0, queued: 0, running: 0, success_24h: 0, by_flow: {} });
+  const [opsJobs,      setOpsJobs]        = useState([]);
+  const [opsStatusFilter, setOpsStatusFilter] = useState(null);
+  const [opsFlowFilter,   setOpsFlowFilter]   = useState(null);
+  const [opsSelected,  setOpsSelected]    = useState(null);
 
   // ── Toast ──
   const [toast, setToast] = useState(null);
   const showToast = useCallback((msg, type = "info") => setToast({ msg, type }), []);
 
-  // ── Load Bids & Projects from Google Sheet ──
+  // ── Recompete state ──
+  const [recompetes, setRecompetes] = useState([]);
+
+  // ── Load Bids & Recompete Watch from local Excel API ──
   useEffect(() => {
-    const SHEET_ID = "1n35yVc-lpZbmjAdHYbCwmUhrllMfPmlBfy2Hp9uA2Hg";
-    
-    // 1. Fetch Bids
-    const bidsUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=HISTORICAL%20DATA`;
-    fetch(bidsUrl)
-      .then(res => res.text())
-      .then(csvText => {
-        Papa.parse(csvText, {
-          header: true, dynamicTyping: true, skipEmptyLines: true,
-          complete: (result) => {
-            const liveData = result.data.map((row, i) => {
-              let rawDate = row["Current Date Offers Due"];
-              let formattedDate = "";
-              if (rawDate) {
-                const s = String(rawDate).trim();
-                const us = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-                const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-                if (us) formattedDate = `${us[3]}-${us[1].padStart(2,"0")}-${us[2].padStart(2,"0")}`;
-                else if (iso) formattedDate = `${iso[1]}-${iso[2]}-${iso[3]}`;
-                else { const d = new Date(s); if (!isNaN(d)) formattedDate = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
-              }
-              return {
-                id:            row["Notice ID:"] || `sheet-row-${i}`,
-                status:        row["STATUS"]     || "Open",
-                dueDate:       formattedDate,
-                title:         row["TITLE"]      || "Unknown Title",
-                state:         row["STATE"]      || "",
-                city:          row["CITY"]       || "",
-                facility:      row["Office"]     || "VA Medical Center",
-                bidAmount:     row["BID AMOUNT"] || "",
-                awardedAmount: row["AWARDED AMOUNT"] || "",
-                contractor:    row["AWARDED CONTRACTOR"] || "",
-                priority:      "Medium",
-                category:      "Electrical",
-                starred:       false,
-                link:          row["link"] || "",
-                notes:         [],
-                chk_sf1449: false, chk_sow_pws: false, chk_pricing: false,
-                chk_past_perf: false, chk_osha_safety: false, chk_licenses: false,
-                chk_site_visit: false, chk_sub_loi: false, chk_compliance: false,
-              };
-            });
-            setBids(liveData);
-          },
-        });
-      });
+    const load = () => {
+      fetch("/api/bids")
+        .then(r => r.json())
+        .then(data => setBids(data))
+        .catch(() => {});
 
-    // 2. Fetch Projects (from Project_Pro tab)
-    const projectsUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Project_Pro`;
-    fetch(projectsUrl)
-      .then(res => res.text())
-      .then(csvText => {
-        Papa.parse(csvText, {
-          header: true, dynamicTyping: true, skipEmptyLines: true,
-          complete: (result) => {
-            const liveProjects = result.data.map((row, i) => {
-              // Helper to safely strip $ and commas from currency strings
-              const cleanMoney = (val) => {
-                if (typeof val === 'number') return val;
-                if (!val) return 0;
-                return Number(val.toString().replace(/[^0-9.-]+/g,""));
-              };
+      fetch("/api/recompete")
+        .then(r => r.json())
+        .then(data => setRecompetes(data))
+        .catch(() => {});
+    };
 
-              // Safely format dates
-              let startDate = "";
-              let endDate = "";
-              try { if (row["START DATE"]) startDate = new Date(row["START DATE"]).toISOString().split("T")[0]; } catch(e){}
-              try { if (row["END DATE"]) endDate = new Date(row["END DATE"]).toISOString().split("T")[0]; } catch(e){}
-
-              return {
-                id: `proj-${i}`,
-                title: row["PROJECT TITLE "] || row["PROJECT TITLE"] || "Unknown Project", 
-                facility: row["FACILITY"] || "",
-                status: row["STATUS"] || "In Progress",
-                phase: row["PHASE "] || row["PHASE"] || "Planning",
-                progress: 0, 
-                startDate: startDate,
-                endDate: endDate,
-                contractValue: cleanMoney(row["CONTRACT VALUE ($)"]),
-                collectedValue: cleanMoney(row["COLLECTED VALUE (%$)"]),
-                milestones: [], 
-                invoices: row["Invoices Amount ($)"] ? [{ id: Date.now(), amount: cleanMoney(row["Invoices Amount ($)"]), status: row["Pending_Paid"] || "Pending" }] : [],
-                issues: row["Issues"] ? [{ id: Date.now(), title: row["Issues"], status: "Open" }] : [],
-                notes: row["Notes"] ? [row["Notes"]] : [],
-              };
-            });
-            setProjects(liveProjects);
-          }
-        });
-      });
+    load();
+    const interval = setInterval(load, 30000); // auto-refresh every 30 seconds
+    return () => clearInterval(interval);
   }, []);
+
+  // ── Job Ledger polling ──
+  useEffect(() => {
+    const loadOps = () => {
+      const qs = new URLSearchParams({ limit: 50 });
+      if (opsStatusFilter) qs.set("status", opsStatusFilter);
+      if (opsFlowFilter)   qs.set("flow",   opsFlowFilter);
+      Promise.all([
+        fetch("/ops/jobs/summary").then(r => r.json()).catch(() => null),
+        fetch(`/ops/jobs?${qs}`).then(r => r.json()).catch(() => []),
+      ]).then(([s, j]) => {
+        if (s) setOpsSummary(s);
+        setOpsJobs(Array.isArray(j) ? j : []);
+      });
+    };
+    loadOps();
+    const t = setInterval(loadOps, 5000);
+    return () => clearInterval(t);
+  }, [opsStatusFilter, opsFlowFilter]);
 
   // ── Bid actions ──
   const toggleCheck = useCallback((id, field) => setBids(bs => bs.map(b => b.id === id ? { ...b, [field]: !b[field] } : b)), []);
@@ -1090,44 +1723,79 @@ export default function BidTrackerPro() {
   const saveBid = useCallback(updated => {
     const original = bids.find(b => b.id === updated.id);
     setBids(bs => bs.map(b => b.id === updated.id ? updated : b));
+    fetch("/api/bids", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updated) })
+      .then(() => showToast("Saved to Excel ✓", "success"))
+      .catch(() => showToast("Save failed — check API server", "warn"));
     if (original && original.status !== "Awarded" && updated.status === "Awarded") {
       setTimeout(() => setBidToConvert(updated), 400);
     }
-  }, [bids]);
+  }, [bids, showToast]);
 
   const deleteBid = useCallback(id  => { setBids(bs => bs.filter(b => b.id !== id)); showToast("Bid deleted", "warn"); }, [showToast]);
-  const addBid    = useCallback(bid => { setBids(bs => [...bs, bid]);                showToast("New bid created! 🎉", "success"); }, [showToast]);
+  const addBid    = useCallback(bid => {
+    setBids(bs => [...bs, bid]);
+    fetch("/api/bids", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(bid) })
+      .catch(() => {});
+    showToast("New bid created! 🎉", "success");
+  }, [showToast]);
+
+  // ── Load projects from Excel API ──
+  useEffect(() => {
+    const loadProjects = () =>
+      fetch("/api/projects").then(r => r.json()).then(data => setProjects(Array.isArray(data) ? data : [])).catch(() => {});
+    loadProjects();
+    const t = setInterval(loadProjects, 30000);
+    return () => clearInterval(t);
+  }, []);
 
   // ── Project actions ──
-  const saveProject = useCallback(updated  => setProjects(ps => ps.map(p => p.id === updated.id ? updated : p)), []);
-  const addProject  = useCallback(project  => { setProjects(ps => [...ps, project]); showToast("Project started! 🚀", "success"); }, [showToast]);
+  const saveProject = useCallback(updated => {
+    setProjects(ps => ps.map(p => p.id === updated.id ? updated : p));
+    fetch("/api/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updated) })
+      .catch(() => {});
+  }, []);
+  const addProject = useCallback(project => {
+    setProjects(ps => [...ps, project]);
+    fetch("/api/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(project) })
+      .catch(() => {});
+    showToast("Project started! 🚀", "success");
+  }, [showToast]);
 
   // ── Derived stats ──
+  const effectiveStatus = useCallback((bid) => {
+    if (bid.status !== "Open") return bid.status;
+    if (bid.dueDate && new Date(bid.dueDate) < new Date()) return "Closed";
+    return "Open";
+  }, []);
+
   const filteredBids = useMemo(() => {
     return (bids || [])
-      .filter(b =>
-        (filter    === "All" || b.status   === filter) &&
-        (catFilter === "All" || b.category === catFilter) &&
-        (!showStarred || b.starred) &&
-        (!search || [b.title, b.city, b.state, b.facility, b.contractor].some(f => f && String(f).toLowerCase().includes(search.toLowerCase())))
-      )
+      .filter(b => {
+        const st = effectiveStatus(b);
+        return (
+          (filter === "All" || (filter === "Won" ? b.wonLoss === "Yes" : filter === "HasAmount" ? Number(b.bidAmount) > 0 : st === filter)) &&
+          (catFilter === "All" || b.category === catFilter) &&
+          (!showStarred || b.starred) &&
+          (!search || [b.title, b.city, b.state, b.facility, b.contractor].some(f => f && String(f).toLowerCase().includes(search.toLowerCase())))
+        );
+      })
       .sort((a, b) => {
         const statusOrder = { Open: 0, Awarded: 1, Closed: 2 };
-        const sa = statusOrder[a.status] ?? 1, sb = statusOrder[b.status] ?? 1;
+        const sa = statusOrder[effectiveStatus(a)] ?? 1, sb = statusOrder[effectiveStatus(b)] ?? 1;
         if (sa !== sb) return sa - sb;
         let av = a[sortKey] || "", bv = b[sortKey] || "";
         if (sortKey === "dueDate") { av = new Date(av); bv = new Date(bv); }
         return sortDir === "asc" ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1);
       });
-  }, [bids, filter, catFilter, showStarred, search, sortKey, sortDir]);
+  }, [bids, filter, catFilter, showStarred, search, sortKey, sortDir, effectiveStatus]);
 
   const bidStats = useMemo(() => ({
     total:      (bids || []).length,
-    open:       (bids || []).filter(b => b.status === "Open").length,
-    awarded:    (bids || []).filter(b => b.status === "Awarded").length,
-    urgent:     (bids || []).filter(b => b.dueDate && (new Date(b.dueDate) - new Date() > 0) && (new Date(b.dueDate) - new Date() < 3 * 86400000)).length,
+    open:       (bids || []).filter(b => effectiveStatus(b) === "Open").length,
+    awarded:    (bids || []).filter(b => b.wonLoss === "Yes").length,
+    urgent:     (bids || []).filter(b => effectiveStatus(b) === "Open" && b.dueDate && (new Date(b.dueDate) - new Date() > 0) && (new Date(b.dueDate) - new Date() < 3 * 86400000)).length,
     totalValue: (bids || []).reduce((s, b) => s + (Number(b.bidAmount) || 0), 0),
-  }), [bids]);
+  }), [bids, effectiveStatus]);
 
   const projectStats = useMemo(() => ({
     active:         (projects || []).filter(p => p.status === "In Progress").length,
@@ -1169,26 +1837,29 @@ export default function BidTrackerPro() {
 
   // ── Tab config for the nav ──
   const tabs = [
-    { id: "bids",     label: "Bids",        Icon: FolderKanban, activeColor: "text-sky-400"    },
-    { id: "projects", label: "Projects",    Icon: Briefcase,    activeColor: "text-blue-400"   },
-    { id: "map",      label: "GeoInsights", Icon: Globe,        activeColor: "text-emerald-400"},
-    { id: "ops",      label: "Ops",         Icon: Activity,     activeColor: "text-indigo-400" },
+    { id: "bids",      label: "Bids",        Icon: FolderKanban,  activeColor: "text-sky-400"    },
+    { id: "recompete", label: "Recompete",   Icon: AlertTriangle, activeColor: "text-amber-400"  },
+    { id: "projects",  label: "Projects",    Icon: Briefcase,     activeColor: "text-blue-400"   },
+    { id: "map",       label: "GeoInsights", Icon: Globe,         activeColor: "text-emerald-400"},
+    { id: "ops",       label: "Ops",         Icon: Activity,      activeColor: "text-indigo-400" },
   ];
 
   const headerGradient =
-    activeTab === "bids"     ? "from-sky-500 to-blue-700 shadow-sky-500/20"     :
-    activeTab === "projects" ? "from-blue-500 to-indigo-700 shadow-blue-500/20" :
-    activeTab === "map"      ? "from-emerald-500 to-teal-700 shadow-emerald-500/20" :
-                               "from-indigo-500 to-purple-700 shadow-indigo-500/20";
+    activeTab === "bids"      ? "from-sky-500 to-blue-700 shadow-sky-500/20"        :
+    activeTab === "recompete" ? "from-amber-500 to-orange-700 shadow-amber-500/20"  :
+    activeTab === "projects"  ? "from-blue-500 to-indigo-700 shadow-blue-500/20"    :
+    activeTab === "map"       ? "from-emerald-500 to-teal-700 shadow-emerald-500/20":
+                                "from-indigo-500 to-purple-700 shadow-indigo-500/20";
 
   const HeaderIcon =
-    activeTab === "bids"     ? Zap      :
-    activeTab === "projects" ? Briefcase :
-    activeTab === "map"      ? Globe    :
-                               Activity;
+    activeTab === "bids"      ? Zap           :
+    activeTab === "recompete" ? AlertTriangle  :
+    activeTab === "projects"  ? Briefcase      :
+    activeTab === "map"       ? Globe          :
+                                Activity;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-sky-500/30">
+    <div data-theme={darkMode ? "dark" : "light"} className="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-sky-500/30">
 
       {/* ── Header ── */}
       <header className="sticky top-0 z-40 bg-slate-950/80 backdrop-blur-md border-b border-slate-800 px-6 py-4">
@@ -1200,10 +1871,11 @@ export default function BidTrackerPro() {
             </div>
             <div>
               <h1 className="text-xl font-bold tracking-tight text-white">
-                {activeTab === "bids"     ? "BidTracker"  :
-                 activeTab === "projects" ? "Project"     :
-                 activeTab === "map"      ? "GeoInsights" :
-                                           "Operating"}
+                {activeTab === "bids"      ? "BidTracker"  :
+                 activeTab === "recompete" ? "Recompete"   :
+                 activeTab === "projects"  ? "Project"     :
+                 activeTab === "map"       ? "GeoInsights" :
+                                            "Operating"}
                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-sky-400 to-blue-500">Pro</span>
               </h1>
               <p className="text-xs font-medium text-slate-500 tracking-wide uppercase mt-0.5">VA Contracting Intelligence</p>
@@ -1220,10 +1892,19 @@ export default function BidTrackerPro() {
             ))}
           </div>
 
-          {/* Clock */}
-          <div className="hidden md:flex bg-slate-900 border border-slate-800 rounded-lg px-4 py-2 items-center gap-3 shadow-inner">
-            <div className={`w-2 h-2 rounded-full animate-pulse ${activeTab === "bids" ? "bg-emerald-400" : activeTab === "projects" ? "bg-blue-400" : activeTab === "map" ? "bg-emerald-400" : "bg-indigo-400"}`} />
-            <LiveClock />
+          {/* Clock + Theme toggle */}
+          <div className="hidden md:flex items-center gap-2">
+            <div className="flex bg-slate-900 border border-slate-800 rounded-lg px-4 py-2 items-center gap-3 shadow-inner">
+              <div className={`w-2 h-2 rounded-full animate-pulse ${activeTab === "bids" ? "bg-emerald-400" : activeTab === "projects" ? "bg-blue-400" : activeTab === "map" ? "bg-emerald-400" : "bg-indigo-400"}`} />
+              <LiveClock />
+            </div>
+            <button
+              onClick={() => setDarkMode(d => !d)}
+              title={darkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+              className="p-2 bg-slate-900 border border-slate-800 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-all"
+            >
+              {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </button>
           </div>
         </div>
       </header>
@@ -1236,24 +1917,7 @@ export default function BidTrackerPro() {
           <div className="animate-in fade-in duration-300 flex flex-col gap-6">
 
             {/* Stats row */}
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-              {[
-                { label: "Total Tracked",   value: bidStats.total,                               color: "#38bdf8", data: [3,4,5,5,6]            },
-                { label: "Active Open",     value: bidStats.open,                                color: "#34d399", data: [2,3,3,4,4]            },
-                { label: "Urgent (<3d)",    value: bidStats.urgent,                              color: "#fb7185", data: [0,1,1,2,2]            },
-                { label: "Won / Awarded",   value: bidStats.awarded,                             color: "#fbbf24", data: [0,0,1,1,1]            },
-                { label: "Pipeline Value",  value: `$${(bidStats.totalValue / 1000).toFixed(0)}K`, color: "#a78bfa", data: [200,300,485,795,795] },
-              ].map(s => (
-                <div key={s.label} className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 shadow-sm relative overflow-hidden">
-                  <div className="absolute -right-4 -top-4 w-24 h-24 rounded-full opacity-10 blur-2xl" style={{ backgroundColor: s.color }} />
-                  <div className="flex justify-between items-start mb-2">
-                    <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{s.label}</div>
-                    <Sparkline data={s.data} color={s.color} />
-                  </div>
-                  <div className="text-3xl font-extrabold tracking-tight" style={{ color: s.color }}>{s.value}</div>
-                </div>
-              ))}
-            </div>
+            <CyberBidsPanel stats={bidStats} onFilter={setFilter} />
 
             {/* Toolbar */}
             <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-2 md:p-3 flex flex-wrap items-center gap-3">
@@ -1278,10 +1942,16 @@ export default function BidTrackerPro() {
 
               {/* Status filter */}
               <div className="flex bg-slate-950 border border-slate-800 rounded-xl p-1">
-                {["All", "Open", "Awarded", "Closed"].map(s => (
-                  <button key={s} onClick={() => setFilter(s)}
-                    className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${filter === s ? "bg-slate-800 text-sky-400 shadow-sm" : "text-slate-500"}`}>
-                    {s}
+                {[
+                  { val: "All",       label: "All"       },
+                  { val: "Open",      label: "Open"      },
+                  { val: "Awarded",   label: "Awarded"   },
+                  { val: "Closed",    label: "Closed"    },
+                  { val: "HasAmount", label: "Submitted" },
+                ].map(({ val, label }) => (
+                  <button key={val} onClick={() => setFilter(val)}
+                    className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${filter === val ? "bg-slate-800 text-sky-400 shadow-sm" : "text-slate-500"}`}>
+                    {label}
                   </button>
                 ))}
               </div>
@@ -1330,7 +2000,8 @@ export default function BidTrackerPro() {
                       )}
                       {filteredBids.map(bid => {
                         const pct   = Math.round(CHECK_FIELDS.filter(f => bid[f.key]).length / CHECK_FIELDS.length * 100);
-                        const sc    = STATUS_COLORS[bid.status]  || STATUS_COLORS["Open"];
+                        const st    = effectiveStatus(bid);
+                        const sc    = STATUS_COLORS[st]          || STATUS_COLORS["Open"];
                         const pc    = PRIORITIES[bid.priority]   || PRIORITIES["Medium"];
                         const isExp = expandedRow === bid.id;
 
@@ -1348,15 +2019,21 @@ export default function BidTrackerPro() {
                               </td>
 
                               <td className="px-4 py-4 align-top pt-5">
-                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wide border ${sc.bg} ${sc.border} ${sc.text}`}>{bid.status}</span>
+                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wide border ${sc.bg} ${sc.border} ${sc.text}`}>{st}</span>
                               </td>
 
                               <td className="px-4 py-4 align-top pt-4">
                                 <div className="text-slate-400 text-xs mb-1.5 font-medium">{bid.dueDate ? new Date(bid.dueDate).toLocaleDateString() : "No Date"}</div>
-                                <Countdown dueDate={bid.dueDate} />
+                                {!bid.chk_compliance && <Countdown dueDate={bid.dueDate} />}
                               </td>
 
                               <td className="px-4 py-4">
+                                {bid.chk_compliance && (
+                                  <div className={`flex items-center gap-1.5 font-extrabold text-[10px] uppercase tracking-wider px-2.5 py-1 rounded-lg mb-2 w-fit ${bid.wonLoss === "No" ? "bg-rose-500 text-white" : "bg-amber-400 text-slate-900"}`}>
+                                    <CheckCircle2 className={`w-3 h-3 flex-shrink-0 ${bid.wonLoss === "No" ? "text-rose-200" : "text-emerald-700"}`} />
+                                    BID PACKAGE SUBMITTED
+                                  </div>
+                                )}
                                 <div className="text-sm font-semibold text-slate-200 mb-1.5 group-hover:text-sky-400 transition-colors line-clamp-2 pr-4">{bid.title}</div>
                                 <div className="flex items-center gap-2 text-xs">
                                   <span className="text-slate-400 flex items-center gap-1"><Building className="w-3 h-3" /> {bid.facility}</span>
@@ -1434,6 +2111,57 @@ export default function BidTrackerPro() {
                 </div>
               </div>
             )}
+
+            {/* ── Active Projects Strip ── */}
+            {projects.filter(p => p.status !== "Completed").length > 0 && (
+              <div className="mt-6">
+                <div className="flex items-center justify-between mb-3 px-1">
+                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <Activity className="w-3.5 h-3.5 text-sky-400" />
+                    Active Projects
+                  </h3>
+                  <button onClick={() => setActiveTab("projects")}
+                    className="text-[11px] text-sky-400 hover:text-sky-300 font-semibold transition-colors">
+                    View All →
+                  </button>
+                </div>
+                <div className="flex gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: "thin" }}>
+                  {projects.filter(p => p.status !== "Completed").map(p => {
+                    const pct     = Math.max(0, Math.min(100, Number(p.progress) || 0));
+                    const cK      = ((p.collectedValue || 0) / 1000).toFixed(0);
+                    const ctK     = ((p.contractValue  || 0) / 1000).toFixed(0);
+                    const mDone   = (p.milestones || []).filter(m => m.completed).length;
+                    const mTotal  = (p.milestones || []).length;
+                    return (
+                      <div key={p.id}
+                        onClick={() => { setActiveTab("projects"); setSelectedProject(p); }}
+                        className="flex-shrink-0 w-60 bg-slate-900/80 border border-slate-700/50 rounded-xl p-4 cursor-pointer hover:border-sky-500/50 hover:bg-slate-800/60 transition-all group">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[9px] font-extrabold text-teal-400 uppercase tracking-wider bg-teal-400/10 px-2 py-0.5 rounded-full border border-teal-400/20">
+                            {p.status === "In Progress" ? "Active" : p.status || "Active"}
+                          </span>
+                          <span className="text-[9px] text-slate-500 uppercase tracking-wide">{p.phase || "Execution"}</span>
+                        </div>
+                        <div className="text-sm font-bold text-slate-200 group-hover:text-sky-400 transition-colors line-clamp-1 mb-0.5">
+                          {p.title}
+                        </div>
+                        <div className="text-[10px] text-slate-500 mb-3 line-clamp-1">{p.facility}</div>
+                        <div className="flex items-center gap-3">
+                          <ProgressRing pct={pct} size={38} stroke={3} />
+                          <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+                            <div className="text-[10px] text-slate-500">Collected</div>
+                            <div className="text-xs font-bold text-emerald-400">
+                              ${cK}k <span className="text-slate-500 font-normal">/ ${ctK}k</span>
+                            </div>
+                            <div className="text-[10px] text-slate-400 mt-0.5">{mDone}/{mTotal} milestones</div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -1442,24 +2170,7 @@ export default function BidTrackerPro() {
           <div className="animate-in fade-in duration-300 flex flex-col gap-6">
 
             {/* Stats row */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-              {[
-                { label: "Active",          value: projectStats.active,                              color: "#60a5fa", icon: <Play className="w-4 h-4 text-blue-400" />,      data: [2,3,4,4,5]   },
-                { label: "On Hold",         value: projectStats.onHold,                              color: "#fb923c", icon: <Pause className="w-4 h-4 text-orange-400" />,   data: [1,1,2,1,1]   },
-                { label: "Completed",       value: projectStats.completed,                           color: "#34d399", icon: <CheckCircle2 className="w-4 h-4 text-emerald-400" />, data: [10,12,15,18,20] },
-                { label: "Open Issues",     value: projectStats.openIssues,                          color: "#fb7185", icon: <AlertCircle className="w-4 h-4 text-rose-400" />, data: [0,2,1,3,1]  },
-                { label: "Portfolio Value", value: `$${(projectStats.portfolioValue/1000).toFixed(0)}K`, color: "#a78bfa", icon: <TrendingUp className="w-4 h-4 text-purple-400" />, data: [400,450,450,600,695] },
-              ].map(s => (
-                <div key={s.label} className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 shadow-sm relative overflow-hidden">
-                  <div className="absolute -right-4 -top-4 w-24 h-24 rounded-full opacity-10 blur-2xl" style={{ backgroundColor: s.color }} />
-                  <div className="flex justify-between items-start mb-2">
-                    <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider">{s.icon} {s.label}</div>
-                    <Sparkline data={s.data} color={s.color} />
-                  </div>
-                  <div className="text-3xl font-extrabold tracking-tight" style={{ color: s.color }}>{s.value}</div>
-                </div>
-              ))}
-            </div>
+            <CyberStatsPanel stats={projectStats} />
 
             <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-3 flex justify-between items-center">
               <h2 className="text-lg font-bold text-slate-200 px-2 flex items-center gap-2">
@@ -1482,79 +2193,258 @@ export default function BidTrackerPro() {
           </div>
         )}
 
+        {/* ════════════ RECOMPETE TAB ════════════ */}
+        {activeTab === "recompete" && (
+          <div className="animate-in fade-in duration-300 flex flex-col gap-6">
+
+            {/* Stats row */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {[
+                { label: "Total Watching",  value: recompetes.length,                                                              color: "#fbbf24" },
+                { label: "Overdue",         value: recompetes.filter(r => r.status === "OVERDUE").length,                          color: "#fb7185" },
+                { label: "Imminent (≤30d)", value: recompetes.filter(r => r.status === "IMMINENT").length,                         color: "#fb923c" },
+                { label: "ARE Prior Wins",  value: recompetes.filter(r => r.areWin?.includes("YES")).length,                       color: "#34d399" },
+              ].map(s => (
+                <div key={s.label} className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 shadow-sm relative overflow-hidden">
+                  <div className="absolute -right-4 -top-4 w-24 h-24 rounded-full opacity-10 blur-2xl" style={{ backgroundColor: s.color }} />
+                  <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">{s.label}</div>
+                  <div className="text-3xl font-extrabold tracking-tight" style={{ color: s.color }}>{s.value}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Table */}
+            <div className="bg-slate-900/40 border border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+              <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-800 bg-amber-500/5">
+                <AlertTriangle className="w-4 h-4 text-amber-400" />
+                <span className="text-sm font-bold text-amber-400 uppercase tracking-wider">Recompete Watch</span>
+                <span className="ml-auto text-xs text-slate-500">{recompetes.length} contracts expiring within 90 days</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left min-w-[1000px]">
+                  <thead>
+                    <tr className="bg-slate-900 border-b border-slate-800 text-xs uppercase tracking-wider text-slate-400 font-semibold">
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3">Days Until</th>
+                      <th className="px-4 py-3">Location</th>
+                      <th className="px-4 py-3">Recompete Date</th>
+                      <th className="px-4 py-3">Award Date</th>
+                      <th className="px-4 py-3">Cycle</th>
+                      <th className="px-4 py-3">Contractor</th>
+                      <th className="px-4 py-3">ARE Win?</th>
+                      <th className="px-4 py-3">Est. Amount</th>
+                      <th className="px-4 py-3">Title</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/50">
+                    {recompetes.length === 0 && (
+                      <tr><td colSpan="10" className="px-6 py-12 text-center text-slate-500">No recompetes found. Run the bid tracker agent to populate data.</td></tr>
+                    )}
+                    {recompetes.map((rc, i) => {
+                      const statusColor =
+                        rc.status === "OVERDUE"  ? "text-rose-400 bg-rose-400/10 border-rose-400/20" :
+                        rc.status === "IMMINENT" ? "text-amber-400 bg-amber-400/10 border-amber-400/20" :
+                                                   "text-emerald-400 bg-emerald-400/10 border-emerald-400/20";
+                      const isMyWin = rc.areWin?.includes("YES");
+                      return (
+                        <tr key={i} className={`transition-colors hover:bg-slate-800/20 ${isMyWin ? "bg-amber-500/5" : ""}`}>
+                          <td className="px-4 py-3">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${statusColor}`}>{rc.status}</span>
+                          </td>
+                          <td className="px-4 py-3 font-mono text-sm font-bold text-slate-300">{rc.daysUntil}d</td>
+                          <td className="px-4 py-3 text-sm font-medium text-slate-200">{rc.city}{rc.state ? `, ${rc.state}` : ""}</td>
+                          <td className="px-4 py-3 text-xs text-slate-400 font-mono">{rc.recompeteDate}</td>
+                          <td className="px-4 py-3 text-xs text-slate-500 font-mono">{rc.awardDate}</td>
+                          <td className="px-4 py-3 text-xs text-slate-400">{rc.cycle}</td>
+                          <td className="px-4 py-3 text-xs text-slate-400 max-w-[180px] truncate" title={rc.contractor}>{rc.contractor}</td>
+                          <td className="px-4 py-3 text-xs font-bold text-center">
+                            {isMyWin ? <span className="text-amber-400 text-sm">★</span> : <span className="text-slate-700">—</span>}
+                          </td>
+                          <td className="px-4 py-3 text-xs font-mono text-emerald-400">{rc.amount}</td>
+                          <td className="px-4 py-3 text-xs text-slate-300 max-w-[260px] truncate" title={rc.title}>{rc.title}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ════════════ GEOINSIGHTS TAB ════════════ */}
         {activeTab === "map" && <GeoPerformanceView bids={bids} />}
 
         {/* ════════════ OPS TAB ════════════ */}
         {activeTab === "ops" && (
           <div className="animate-in fade-in duration-300 flex flex-col gap-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
 
-              {/* Checklist launcher */}
-              <div className="bg-slate-900/60 border border-slate-800 rounded-3xl p-8 flex flex-col items-center text-center">
-                <div className="w-20 h-20 rounded-full bg-indigo-500/10 flex items-center justify-center mb-6">
-                  <Activity className="w-10 h-10 text-indigo-400" />
+            {/* System health pill */}
+            <div className="flex justify-end">
+              <CompactSystemHealth />
+            </div>
+
+            {/* Task Planner (replaces Weekly Ops Checklist + Financial Health) */}
+            <TodoPanel />
+
+            {/* Risk Management */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-slate-900/60 border border-slate-800 rounded-3xl p-6">
+                <div className="flex justify-between items-start mb-6">
+                  <div className="text-xs font-bold text-slate-500 uppercase tracking-widest">Risk Management</div>
+                  <AlertCircle className="w-5 h-5 text-rose-400" />
                 </div>
-                <h3 className="text-xl font-bold text-white mb-2">Weekly Operational Readiness</h3>
-                <p className="text-slate-400 text-sm max-w-[240px] mb-8">Maintain healthy business guardrails. Review bank balances, pipelines, and site health.</p>
-                <div className="flex items-center gap-4 mb-8 bg-slate-950/50 p-4 rounded-2xl border border-slate-800">
-                  <ProgressRing pct={0} size={50} stroke={5} customColor="#818cf8" />
-                  <div className="text-left">
-                    <div className="text-lg font-bold text-white">0 / {OPS_SCHEMA.flatMap(s => s.items).length} Done</div>
-                    <div className="text-xs text-slate-500 uppercase font-bold tracking-widest">Completion</div>
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center py-2 border-b border-slate-800/50">
+                    <span className="text-slate-400 text-sm">At-Risk Contracts</span>
+                    <span className="text-xl font-bold text-rose-400">{projectStats.openIssues}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b border-slate-800/50">
+                    <span className="text-slate-400 text-sm">Critical Deadlines (&lt;3d)</span>
+                    <span className="text-lg font-bold text-amber-400">{bidStats.urgent}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b border-slate-800/50">
+                    <span className="text-slate-400 text-sm">Total Tracked Bids</span>
+                    <span className="text-lg font-bold text-sky-400">{bidStats.total}</span>
                   </div>
                 </div>
-                <button onClick={() => setShowOpsModal(true)}
-                  className="w-full py-4 bg-indigo-500 hover:bg-indigo-400 text-slate-900 rounded-2xl font-black shadow-lg shadow-indigo-500/20 hover:scale-[1.02] transition-all">
-                  OPEN CHECKLIST
+              </div>
+            </div>
+
+            {/* ── Job Ledger ────────────────────────────────── */}
+            <div className="bg-slate-900/60 border border-slate-800 rounded-3xl p-6">
+              <div className="flex justify-between items-center mb-5">
+                <div className="text-xs font-bold text-slate-500 uppercase tracking-widest">Automation Job Ledger</div>
+                <button
+                  onClick={() => { setOpsStatusFilter(null); setOpsFlowFilter(null); }}
+                  className="text-[10px] text-slate-500 hover:text-slate-300 uppercase tracking-widest"
+                >
+                  Clear filters
                 </button>
               </div>
 
-              {/* Financial + Risk panels */}
-              <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="bg-slate-900/60 border border-slate-800 rounded-3xl p-6">
-                  <div className="flex justify-between items-start mb-6">
-                    <div className="text-xs font-bold text-slate-500 uppercase tracking-widest">Financial Health</div>
-                    <DollarSign className="w-5 h-5 text-emerald-400" />
-                  </div>
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center py-2 border-b border-slate-800/50">
-                      <span className="text-slate-400 text-sm">Open A/R (Pending)</span>
-                      <span className="text-xl font-mono font-bold text-emerald-400">${projectStats.openAR.toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-2 border-b border-slate-800/50">
-                      <span className="text-slate-400 text-sm">Portfolio Value</span>
-                      <span className="text-lg font-mono font-bold text-slate-200">${(projectStats.portfolioValue).toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-2 border-b border-slate-800/50">
-                      <span className="text-slate-400 text-sm">Cash on Hand</span>
-                      <span className="text-lg font-mono font-bold text-slate-200">$0.00</span>
-                    </div>
-                  </div>
-                  <div className="mt-6 text-[10px] text-slate-500 leading-relaxed italic">Note: Open A/R is automatically synced from your project invoice statuses.</div>
-                </div>
-
-                <div className="bg-slate-900/60 border border-slate-800 rounded-3xl p-6">
-                  <div className="flex justify-between items-start mb-6">
-                    <div className="text-xs font-bold text-slate-500 uppercase tracking-widest">Risk Management</div>
-                    <AlertCircle className="w-5 h-5 text-rose-400" />
-                  </div>
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center py-2 border-b border-slate-800/50">
-                      <span className="text-slate-400 text-sm">At-Risk Contracts</span>
-                      <span className="text-xl font-bold text-rose-400">{projectStats.openIssues}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-2 border-b border-slate-800/50">
-                      <span className="text-slate-400 text-sm">Critical Deadlines (&lt;3d)</span>
-                      <span className="text-lg font-bold text-amber-400">{bidStats.urgent}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-2 border-b border-slate-800/50">
-                      <span className="text-slate-400 text-sm">Total Tracked Bids</span>
-                      <span className="text-lg font-bold text-sky-400">{bidStats.total}</span>
-                    </div>
-                  </div>
-                </div>
+              {/* Summary cards */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+                {[
+                  { label: "Failed Today",  value: opsSummary.failed_today, color: "rose",    status: "failed"  },
+                  { label: "Queued",        value: opsSummary.queued,        color: "amber",   status: "queued"  },
+                  { label: "Running",       value: opsSummary.running,       color: "sky",     status: "running" },
+                  { label: "Success (24h)", value: opsSummary.success_24h,   color: "emerald", status: "success" },
+                ].map(c => (
+                  <button
+                    key={c.status}
+                    onClick={() => setOpsStatusFilter(opsStatusFilter === c.status ? null : c.status)}
+                    className={`p-3 rounded-2xl border text-left transition-all hover:brightness-110 ${
+                      opsStatusFilter === c.status
+                        ? `bg-${c.color}-500/20 border-${c.color}-500/50`
+                        : "bg-slate-950/50 border-slate-800 hover:border-slate-700"
+                    }`}
+                  >
+                    <div className={`text-2xl font-black text-${c.color}-400`}>{c.value}</div>
+                    <div className="text-[10px] text-slate-500 uppercase tracking-widest mt-0.5">{c.label}</div>
+                  </button>
+                ))}
               </div>
+
+              {/* Flow filter pills */}
+              {Object.keys(opsSummary.by_flow).length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {Object.keys(opsSummary.by_flow).map(f => (
+                    <button
+                      key={f}
+                      onClick={() => setOpsFlowFilter(opsFlowFilter === f ? null : f)}
+                      className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest transition-all ${
+                        opsFlowFilter === f
+                          ? "bg-indigo-500/30 text-indigo-300 border border-indigo-500/50"
+                          : "bg-slate-800 text-slate-400 border border-slate-700 hover:border-slate-500"
+                      }`}
+                    >
+                      {f.replace(/_/g, " ")}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Jobs table */}
+              {opsJobs.length === 0 ? (
+                <div className="text-center text-slate-600 text-sm py-8">
+                  No jobs yet — watchers will log here when they run.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-[10px] text-slate-500 uppercase tracking-widest border-b border-slate-800">
+                        <th className="text-left pb-2 pr-4">Flow</th>
+                        <th className="text-left pb-2 pr-4">Status</th>
+                        <th className="text-left pb-2 pr-4">Stage</th>
+                        <th className="text-left pb-2 pr-4">Attempts</th>
+                        <th className="text-left pb-2 pr-4">Input</th>
+                        <th className="text-left pb-2 pr-4">Updated</th>
+                        <th className="text-left pb-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {opsJobs.map(job => {
+                        const statusColor = {
+                          success: "text-emerald-400", failed: "text-rose-400",
+                          running: "text-sky-400",     queued: "text-amber-400",
+                        }[job.status] || "text-slate-400";
+                        const inputName = job.input_path
+                          ? job.input_path.split("/").pop()
+                          : "—";
+                        const updatedShort = job.updated_at
+                          ? job.updated_at.replace("T", " ").slice(0, 16)
+                          : "—";
+                        return (
+                          <tr
+                            key={job.job_id}
+                            className="border-b border-slate-800/50 hover:bg-slate-800/30 cursor-pointer"
+                            onClick={() => setOpsSelected(job.job_id === opsSelected ? null : job.job_id)}
+                          >
+                            <td className="py-2 pr-4 text-slate-300 font-mono text-xs">{job.flow.replace(/_/g, " ")}</td>
+                            <td className={`py-2 pr-4 font-bold text-xs ${statusColor}`}>{job.status}</td>
+                            <td className="py-2 pr-4 text-slate-400 text-xs">{job.stage || "—"}</td>
+                            <td className="py-2 pr-4 text-slate-400 text-xs">{job.attempts}/{job.max_attempts}</td>
+                            <td className="py-2 pr-4 text-slate-400 text-xs max-w-[160px] truncate" title={job.input_path}>{inputName}</td>
+                            <td className="py-2 pr-4 text-slate-500 text-xs">{updatedShort}</td>
+                            <td className="py-2">
+                              {job.status === "failed" && (
+                                <button
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    fetch(`/ops/jobs/${job.job_id}/retry`, { method: "POST" })
+                                      .then(() => showToast("Job reset to queued ✓", "success"));
+                                  }}
+                                  className="text-[10px] px-2 py-1 rounded-lg bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 font-bold uppercase tracking-widest"
+                                >
+                                  Retry
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Inline detail row */}
+              {opsSelected && (() => {
+                const job = opsJobs.find(j => j.job_id === opsSelected);
+                if (!job) return null;
+                return (
+                  <div className="mt-4 p-4 bg-slate-950/70 rounded-2xl border border-slate-700 text-xs font-mono text-slate-300 space-y-1">
+                    <div><span className="text-slate-500">job_id: </span>{job.job_id}</div>
+                    <div><span className="text-slate-500">input:  </span>{job.input_path || "—"}</div>
+                    {job.last_error && (
+                      <div><span className="text-rose-500">error:  </span>{job.last_error}</div>
+                    )}
+                    <div><span className="text-slate-500">created: </span>{job.created_at}</div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         )}
