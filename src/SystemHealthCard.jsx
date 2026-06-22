@@ -5,13 +5,13 @@ const API = `http://${window.location.hostname}:5050/api/system/health`;
 const POLL_MS = 30_000;
 
 const STATUS_META = {
-  online:      { color: "text-emerald-400", bg: "bg-emerald-400/10", dot: "bg-emerald-400", label: "Online" },
-  degraded:    { color: "text-amber-400",   bg: "bg-amber-400/10",   dot: "bg-amber-400",   label: "Degraded" },
-  stopped:     { color: "text-rose-400",    bg: "bg-rose-400/10",    dot: "bg-rose-400",    label: "Stopped" },
-  errored:     { color: "text-rose-400",    bg: "bg-rose-400/10",    dot: "bg-rose-500",    label: "Errored" },
-  down:        { color: "text-rose-400",    bg: "bg-rose-400/10",    dot: "bg-rose-400",    label: "Down" },
-  unknown:     { color: "text-slate-400",   bg: "bg-slate-400/10",   dot: "bg-slate-400",   label: "Unknown" },
-  "not managed": { color: "text-slate-500", bg: "bg-slate-500/10",   dot: "bg-slate-500",   label: "Unmanaged" },
+  online:      { color: "text-success", bg: "bg-success-soft", dot: "bg-success", label: "Online" },
+  degraded:    { color: "text-warning",   bg: "bg-warning/10",   dot: "bg-warning",   label: "Degraded" },
+  stopped:     { color: "text-danger",    bg: "bg-danger-soft",    dot: "bg-danger",    label: "Stopped" },
+  errored:     { color: "text-danger",    bg: "bg-danger-soft",    dot: "bg-danger",    label: "Errored" },
+  down:        { color: "text-danger",    bg: "bg-danger-soft",    dot: "bg-danger",    label: "Down" },
+  unknown:     { color: "text-text-muted",   bg: "bg-bg-subtle/10",   dot: "bg-bg-subtle",   label: "Unknown" },
+  "not managed": { color: "text-text-faint", bg: "bg-bg-subtle/10",   dot: "bg-bg-subtle",   label: "Unmanaged" },
 };
 
 function StatusDot({ status }) {
@@ -58,23 +58,23 @@ export default function SystemHealthCard() {
   const allUp     = data?.all_up ?? false;
 
   return (
-    <div className="bg-slate-900/60 border border-slate-800 rounded-3xl p-6">
+    <div className="bg-surface/60 border border-border rounded-3xl p-6">
       {/* Header */}
       <div className="flex justify-between items-center mb-5">
         <div className="flex items-center gap-2">
-          <Activity className={`w-4 h-4 ${allUp ? "text-emerald-400" : "text-amber-400"}`} />
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">System Health</span>
+          <Activity className={`w-4 h-4 ${allUp ? "text-success" : "text-warning"}`} />
+          <span className="text-xs font-bold text-text-faint uppercase tracking-widest">System Health</span>
         </div>
         <div className="flex items-center gap-3">
           {lastFetch && (
-            <span className="text-[10px] text-slate-600">
+            <span className="text-[10px] text-text-faint">
               {lastFetch.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
             </span>
           )}
           <button
             onClick={fetchHealth}
             disabled={loading}
-            className="text-slate-500 hover:text-slate-300 transition-colors disabled:opacity-40"
+            className="text-text-faint hover:text-text-secondary transition-colors disabled:opacity-40"
             title="Refresh now"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
@@ -83,25 +83,25 @@ export default function SystemHealthCard() {
       </div>
 
       {/* Summary badge */}
-      <div className="flex items-center gap-3 mb-5 p-3 rounded-2xl bg-slate-950/50 border border-slate-800">
+      <div className="flex items-center gap-3 mb-5 p-3 rounded-2xl bg-bg-app/50 border border-border">
         {loading && !data ? (
-          <Loader className="w-5 h-5 text-slate-400 animate-spin" />
+          <Loader className="w-5 h-5 text-text-muted animate-spin" />
         ) : error ? (
-          <XCircle className="w-5 h-5 text-rose-400" />
+          <XCircle className="w-5 h-5 text-danger" />
         ) : allUp ? (
-          <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+          <CheckCircle2 className="w-5 h-5 text-success" />
         ) : (
-          <AlertTriangle className="w-5 h-5 text-amber-400" />
+          <AlertTriangle className="w-5 h-5 text-warning" />
         )}
         <div>
           {error ? (
-            <div className="text-sm font-bold text-rose-400">Cannot reach Flask API</div>
+            <div className="text-sm font-bold text-danger">Cannot reach Flask API</div>
           ) : (
-            <div className={`text-sm font-bold ${allUp ? "text-emerald-400" : "text-amber-400"}`}>
+            <div className={`text-sm font-bold ${allUp ? "text-success" : "text-warning"}`}>
               {upCount} / {total} services online
             </div>
           )}
-          <div className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">
+          <div className="text-[10px] text-text-faint uppercase tracking-widest font-bold">
             {allUp ? "All systems nominal" : error ? "Start bid-flask-api first" : "Degraded — check below"}
           </div>
         </div>
@@ -109,8 +109,8 @@ export default function SystemHealthCard() {
 
       {/* Service rows */}
       {error ? (
-        <div className="text-xs text-slate-500 italic text-center py-4">
-          Run: <code className="text-slate-400 font-mono">pm2 start ~/Developer/ecosystem.config.cjs</code>
+        <div className="text-xs text-text-faint italic text-center py-4">
+          Run: <code className="text-text-muted font-mono">pm2 start ~/Developer/ecosystem.config.cjs</code>
         </div>
       ) : (
         <div className="space-y-2">
@@ -118,14 +118,14 @@ export default function SystemHealthCard() {
             const m = STATUS_META[svc.status] ?? STATUS_META.unknown;
             return (
               <div key={svc.name}
-                className={`flex items-center justify-between px-3 py-2.5 rounded-xl border border-slate-800/60 ${m.bg}`}
+                className={`flex items-center justify-between px-3 py-2.5 rounded-xl border border-border/60 ${m.bg}`}
               >
                 <div className="flex items-center gap-2.5">
                   <StatusDot status={svc.status} />
-                  <span className="text-sm font-mono text-slate-200">{svc.name}</span>
+                  <span className="text-sm font-mono text-text">{svc.name}</span>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="text-[10px] font-mono text-slate-500">:{svc.port}</span>
+                  <span className="text-[10px] font-mono text-text-faint">:{svc.port}</span>
                   <span className={`text-[10px] font-bold uppercase tracking-wide ${m.color}`}>
                     {m.label}
                   </span>
@@ -136,7 +136,7 @@ export default function SystemHealthCard() {
         </div>
       )}
 
-      <div className="mt-4 text-[10px] text-slate-600 text-right">
+      <div className="mt-4 text-[10px] text-text-faint text-right">
         Auto-refreshes every 30 s · PM2 managed
       </div>
     </div>

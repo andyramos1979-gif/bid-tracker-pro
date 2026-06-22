@@ -1,1 +1,104 @@
 @import "tailwindcss";
+
+/* Class-based dark mode — toggled by adding .dark to <html> */
+@variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* ── Primitive ramps ── */
+  --color-brand-50: #EEF2FF; --color-brand-100:#E0E7FF; --color-brand-200:#C7D2FE;
+  --color-brand-300:#A5B4FC; --color-brand-400:#6587F6; --color-brand-500:#3B66F0;
+  --color-brand-600:#2563EB; --color-brand-700:#1E40AF; --color-brand-800:#1E3A8A; --color-brand-900:#172554;
+
+  /* ── SEMANTIC TOKENS — LIGHT ── */
+  --color-bg-app:         #FAFAF7;
+  --color-bg-subtle:      #F4F4EF;
+  --color-surface:        #FFFFFF;
+  --color-surface-raised: #FFFFFF;
+  --color-surface-sunken: #F4F4EF;
+
+  --color-border:         #ECECE6;
+  --color-border-strong:  #E2E2DA;
+  --color-ring:           #2563EB;
+
+  --color-text:           #101218;
+  --color-text-secondary: #475569;
+  --color-text-muted:     #64748B;
+  --color-text-faint:     #94A3B8;
+  --color-text-inverse:   #FFFFFF;
+
+  --color-accent:         #1E40AF;
+  --color-accent-hover:   #1E3A8A;
+  --color-accent-fg:      #FFFFFF;
+  --color-accent-soft:    #EEF2FF;
+  --color-accent-soft-fg: #1E40AF;
+
+  --color-success:      #059669; --color-success-soft:#ECFDF5; --color-success-fg:#047857; --color-success-ring:#A7F3D0;
+  --color-warning:      #D97706; --color-warning-soft:#FFFBEB; --color-warning-fg:#B45309; --color-warning-ring:#FDE68A;
+  --color-danger:       #E11D48; --color-danger-soft: #FFF1F2; --color-danger-fg: #BE123C; --color-danger-ring: #FECDD3;
+  --color-info:         #2563EB; --color-info-soft:   #EFF6FF; --color-info-fg:   #1D4ED8; --color-info-ring:   #BFDBFE;
+  --color-neutral:      #64748B; --color-neutral-soft:#F1F5F9; --color-neutral-fg:#334155; --color-neutral-ring:#E2E8F0;
+  --color-special:      #7C3AED; --color-special-soft:#F5F3FF; --color-special-fg:#6D28D9; --color-special-ring:#DDD6FE;
+
+  --shadow-card:       0 1px 0 rgba(15,17,21,.04), 0 1px 2px rgba(15,17,21,.04);
+  --shadow-card-hover: 0 1px 0 rgba(15,17,21,.04), 0 6px 18px -8px rgba(15,17,21,.16);
+  --shadow-pop:        0 24px 60px -12px rgba(15,17,21,.28);
+  --shadow-glow:       0 1px 0 rgba(0,0,0,.06), 0 4px 12px -4px rgba(30,64,175,.50);
+
+  --radius-card: 12px;
+}
+
+/* ── DARK — deep navy ── */
+.dark {
+  color-scheme: dark;
+
+  --color-bg-app:         #0B1120;
+  --color-bg-subtle:      #141C2E;
+  --color-surface:        #0F172A;
+  --color-surface-raised: #141C2E;
+  --color-surface-sunken: #141C2E;
+
+  --color-border:         #273245;
+  --color-border-strong:  #334155;
+  --color-ring:           #3B82F6;
+
+  --color-text:           #F1F5F9;
+  --color-text-secondary: #B4C0D4;
+  --color-text-muted:     #8595AD;
+  --color-text-faint:     #5A6A85;
+  --color-text-inverse:   #0B1120;
+
+  --color-accent:         #2563EB;
+  --color-accent-hover:   #3B66F0;
+  --color-accent-fg:      #FFFFFF;
+  --color-accent-soft:    rgba(37,99,235,.16);
+  --color-accent-soft-fg: #9DB4FF;
+
+  --color-success:      #34D399; --color-success-soft:rgba(16,185,129,.12); --color-success-fg:#6EE7B7; --color-success-ring:rgba(16,185,129,.30);
+  --color-warning:      #FBBF24; --color-warning-soft:rgba(245,158,11,.12); --color-warning-fg:#FCD34D; --color-warning-ring:rgba(245,158,11,.30);
+  --color-danger:       #FB7185; --color-danger-soft: rgba(244,63,94,.12);  --color-danger-fg: #FDA4AF; --color-danger-ring: rgba(244,63,94,.30);
+  --color-info:         #60A5FA; --color-info-soft:   rgba(37,99,235,.14);  --color-info-fg:   #93C5FD; --color-info-ring:   rgba(37,99,235,.30);
+  --color-neutral:      #8595AD; --color-neutral-soft:#1B2436;              --color-neutral-fg:#CBD5E1; --color-neutral-ring:#273245;
+  --color-special:      #A78BFA; --color-special-soft:rgba(139,92,246,.14); --color-special-fg:#C4B5FD; --color-special-ring:rgba(139,92,246,.30);
+
+  --shadow-card:       0 1px 0 rgba(0,0,0,.30), 0 1px 2px rgba(0,0,0,.40);
+  --shadow-card-hover: 0 1px 0 rgba(0,0,0,.30), 0 8px 22px -10px rgba(0,0,0,.70);
+  --shadow-pop:        0 30px 60px -12px rgba(0,0,0,.75);
+  --shadow-glow:       0 0 0 1px rgba(59,130,246,.35), 0 0 24px -4px rgba(59,130,246,.55);
+}
+
+/* ── Global base ── */
+html, body {
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+body { margin: 0; }
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(156,163,175,.15); border-radius: 9999px; }
+.dark ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--color-accent) 12%, transparent); }
+::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--color-accent) 25%, transparent); }
