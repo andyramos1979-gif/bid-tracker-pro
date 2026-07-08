@@ -10,6 +10,8 @@ import hashlib
 import sys
 import uuid
 import openpyxl
+import psycopg2
+import psycopg2.extras
 
 app = Flask(__name__)
 CORS(app)
@@ -20,6 +22,27 @@ AGENT_DIR = Path(
 )
 EXCEL_FILE  = AGENT_DIR / "ARE_BID_TRACKER_2026.xlsx"
 SAM_RAW_DIR = AGENT_DIR / "sam_raw"
+
+# Project Master cutover (2026-07-08, owner-approved): /api/projects reads and
+# writes Postgres now, not the Excel "Project " sheet -- same Postgres
+# `project` table Financial Hub's main.py uses, connected to directly since
+# this Flask process has no ORM/session layer of its own. /api/bids,
+# /api/recompete, and /api/health are unaffected -- still Excel-backed, out of
+# scope for this cutover (Project Master only).
+def _pg_dsn() -> str:
+    env_path = Path(
+        "/Users/andyramos/Developer/06_Pyhton_Scripts"
+        "/01_Finance_Phyton_Scripts/ARE_FINANCIAL_HUB/backend/.env"
+    )
+    for line in env_path.read_text().splitlines():
+        k, _, v = line.partition("=")
+        if k.strip() == "DATABASE_URL":
+            return v.strip()
+    raise RuntimeError("DATABASE_URL not found in Financial Hub's .env")
+
+
+def _pg_conn():
+    return psycopg2.connect(_pg_dsn(), cursor_factory=psycopg2.extras.RealDictCursor)
 
 # Same cross-process lock + atomic save Financial Hub's backend/utils/file_locking.py
 # and ARE_BID_TRACKER_AGENT's other writers use against this same workbook — without
@@ -221,277 +244,186 @@ def get_recompete():
 PROJECTS_JSON = AGENT_DIR / "exports" / "projects.json"
 
 
-def _read_manual_projects():
-    """Read from the hand-edited 'Project' tab in Excel (handles trailing spaces)."""
-    # Find the tab — user may have named it 'Project' or 'Project '
-    tab_name = None
-    if EXCEL_FILE.exists():
-        import openpyxl as _ox
-        wb = _ox.load_workbook(EXCEL_FILE, read_only=True, data_only=True)
-        skip = {"Projects", "Project_Milestones", "Project_Invoices", "Project_Issues", "Project_Notes"}
-        for s in wb.sheetnames:
-            if s.strip() == "Project" and s not in skip:
-                tab_name = s
-                break
-        wb.close()
-    if not tab_name:
-        return []
-    headers, rows = _load_sheet(tab_name)
-    if not headers:
-        return []
+def _read_pg_projects():
+    """Postgres-backed replacement for the old Excel "Project " sheet reader.
+    Same response shape the frontend already expects — milestones/invoices are
+    still synthesized from flat fields (milestones_text, invoiced/invoiced2/
+    pending_paid) exactly as the Excel version did (there was never a
+    structured milestones table behind this particular view). issues/notes
+    now come from the real project_issue/project_note tables Financial Hub's
+    project_ops_router already writes to — a genuine improvement over the
+    Excel version, which only ever populated notes and left issues empty."""
+    conn = _pg_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT excel_project_id, project_name, category, customer_name, status, phase,
+                       start_date, end_date, contract_amount, collected, sub_value, material,
+                       profit, milestones_text, invoiced, invoiced2, pending_paid, onedrive_path
+                FROM project
+                WHERE is_archived = false AND excel_project_id IS NOT NULL
+            """)
+            rows = cur.fetchall()
 
-    projects = []
-    project_by_id = {}
-    for i, row in enumerate(rows):
-        d = dict(zip(headers, row))
-        # Normalize keys (strip non-breaking spaces from dict keys too)
-        d = {k.replace('\xa0', '').strip(): v for k, v in d.items()}
-        title = str(d.get("PROJECT TITLE") or "").strip().replace('\xa0', '')
-        if not title:
-            continue
+            projects, project_by_id = [], {}
+            for r in rows:
+                pid = r["excel_project_id"]
+                contract = float(r["contract_amount"] or 0)
+                collected = float(r["collected"] or 0) or float(r["invoiced"] or 0) + float(r["invoiced2"] or 0)
+                milestones_raw = r["milestones_text"] or ""
+                milestones = [{"id": f"m-{j}", "title": m.strip(), "completed": False}
+                              for j, m in enumerate(milestones_raw.split(",")) if m.strip()]
+                invoices = []
+                if r["invoiced"]:      invoices.append({"id": "inv-1", "amount": float(r["invoiced"]),      "status": "Paid"})
+                if r["invoiced2"]:     invoices.append({"id": "inv-2", "amount": float(r["invoiced2"]),     "status": "Paid"})
+                if r["pending_paid"]:  invoices.append({"id": "inv-p", "amount": float(r["pending_paid"]),  "status": "Pending"})
 
-        # Stable ID lives in the "Project ID" column — read it back rather than
-        # recomputing from the title, so renaming a project can't fork it into a
-        # new row (the id the UI is holding onto must keep resolving after an edit).
-        # Hash-of-title is only a fallback for rows saved before this column existed.
-        pid = str(d.get("Project ID") or "").strip() or \
-            "proj-" + hashlib.md5(title.encode()).hexdigest()[:8]
+                proj = {
+                    "id":             pid,
+                    "title":          r["project_name"],
+                    "category":       r["category"] or "",
+                    "facility":       r["customer_name"] or "",
+                    "status":         r["status"] or "In Progress",
+                    "phase":          r["phase"] or "Execution",
+                    "progress":       int(min(100, (collected / contract * 100))) if contract else 0,
+                    "startDate":      r["start_date"].isoformat() if r["start_date"] else "",
+                    "endDate":        r["end_date"].isoformat() if r["end_date"] else "",
+                    "contractValue":  contract,
+                    "collectedValue": collected,
+                    "subContractor":  float(r["sub_value"] or 0),
+                    "material":       float(r["material"] or 0),
+                    "profit":         float(r["profit"] or 0),
+                    "milestones":     milestones,
+                    "invoices":       invoices,
+                    "issues":         [],
+                    "notes":          [],
+                    "onedriveFolder": r["onedrive_path"] or "",
+                }
+                projects.append(proj)
+                project_by_id[pid] = proj
 
-        def _d(col):
-            v = d.get(col)
-            if v is None:
-                return ""
-            if hasattr(v, "strftime"):
-                return v.strftime("%Y-%m-%d")
-            return str(v).strip()
+            if project_by_id:
+                cur.execute(
+                    "SELECT project_id, title, status FROM project_issue WHERE is_deleted = false AND project_id = ANY(%s)",
+                    (list(project_by_id.keys()),),
+                )
+                for row in cur.fetchall():
+                    project_by_id[row["project_id"]]["issues"].append(
+                        {"id": row["title"], "title": row["title"], "status": row["status"]}
+                    )
+                cur.execute(
+                    "SELECT project_id, text FROM project_note WHERE is_deleted = false AND project_id = ANY(%s)",
+                    (list(project_by_id.keys()),),
+                )
+                for row in cur.fetchall():
+                    project_by_id[row["project_id"]]["notes"].append(row["text"])
 
-        def _f(col):
-            try:
-                return float(str(d.get(col) or "0").replace("$", "").replace(",", "") or 0)
-            except (ValueError, TypeError):
-                return 0.0
-
-        status = _d("STATUS") or "In Progress"
-        milestones_raw = _d("Milestones")
-        milestones = [{"id": f"m-{j}", "title": m.strip(), "completed": False}
-                      for j, m in enumerate(milestones_raw.split(",")) if m.strip()] if milestones_raw else []
-
-        inv_amt  = _f("Invoices Amount ($)")
-        inv2_amt = _f("2nd nvoices Amount ($)")
-        pending  = _f("Pending_Paid")
-        invoices = []
-        if inv_amt:  invoices.append({"id": "inv-1", "amount": inv_amt,  "status": "Paid"})
-        if inv2_amt: invoices.append({"id": "inv-2", "amount": inv2_amt, "status": "Paid"})
-        if pending:  invoices.append({"id": "inv-p", "amount": pending,  "status": "Pending"})
-
-        collected      = _f("COLLECTED VALUE (%$)") or (inv_amt + inv2_amt)
-        contract       = _f("CONTRACT VALUE ($)")
-        sub            = _f("SUB CONTRACTOR VALUE ($)")
-        material       = _f("MATERIAL")
-        profit         = _f("PROFIT")
-        onedrive_folder = _d("Onedrive location")
-
-        # derive progress from collected / contract
-        progress = int(min(100, (collected / contract * 100))) if contract else 0
-
-        proj = {
-            "id":             pid,
-            "title":          title,
-            "category":       _d("Category"),
-            "facility":       _d("FACILITY"),
-            "status":         status,
-            "phase":          _d("PHASE") or "Execution",
-            "progress":       progress,
-            "startDate":      _d("START DATE"),
-            "endDate":        _d("END DATE"),
-            "contractValue":  contract,
-            "collectedValue": collected,
-            "subContractor":  sub,
-            "material":       material,
-            "profit":         profit,
-            "milestones":      milestones,
-            "invoices":        invoices,
-            "issues":          [],
-            "notes":           [],
-            "onedriveFolder":  onedrive_folder,
-        }
-        projects.append(proj)
-        project_by_id[pid] = proj
-
-    # Attach notes from Project_Notes sheet
-    if EXCEL_FILE.exists() and project_by_id:
-        try:
-            import openpyxl as _ox2
-            wb2 = _ox2.load_workbook(EXCEL_FILE, read_only=True, data_only=True)
-            if "Project_Notes" in wb2.sheetnames:
-                note_rows = list(wb2["Project_Notes"].iter_rows(values_only=True))
-                if len(note_rows) > 1:
-                    hdr = {str(c or "").strip(): i for i, c in enumerate(note_rows[0])}
-                    pid_col = hdr.get("Project ID")
-                    txt_col = hdr.get("Text")
-                    if pid_col is not None and txt_col is not None:
-                        for nr in note_rows[1:]:
-                            npid = str(nr[pid_col] or "").strip()
-                            ntxt = str(nr[txt_col] or "").strip()
-                            if npid in project_by_id and ntxt:
-                                project_by_id[npid]["notes"].append(ntxt)
-            wb2.close()
-        except Exception:
-            pass
-
-    return projects
+            return projects
+    finally:
+        conn.close()
 
 
 @app.route("/api/projects", methods=["GET"])
 def get_projects():
-    # Primary: manual "Project" tab the user edits directly
-    projects = _read_manual_projects()
-    return jsonify(projects)
-
-
-def _upsert_normalized_tab(wb, tab_name, proj_id, items, col_map):
-    """Delete all rows for proj_id in a normalized tab, then re-insert items."""
-    import datetime as _dt
-    if tab_name not in wb.sheetnames:
-        return
-    ws = wb[tab_name]
-    raw_hdrs = [str(c.value).replace('\xa0','').strip() if c.value else "" for c in ws[1]]
-
-    # Delete existing rows for this project (bottom-up to preserve row indices)
-    pid_col = next((i for i, h in enumerate(raw_hdrs) if h.lower() == "project id"), None)
-    if pid_col is not None:
-        rows_to_delete = [
-            row[0].row for row in ws.iter_rows(min_row=2)
-            if str(row[pid_col].value or "").strip() == str(proj_id)
-        ]
-        for r in sorted(rows_to_delete, reverse=True):
-            ws.delete_rows(r)
-
-    # Re-insert
-    now = _dt.datetime.now().strftime("%Y-%m-%d")
-    for item in items:
-        new_row = [""] * len(raw_hdrs)
-        for col_name, value in col_map(proj_id, item, now).items():
-            for i, h in enumerate(raw_hdrs):
-                if h.lower() == col_name.lower():
-                    new_row[i] = value
-                    break
-        ws.append(new_row)
+    return jsonify(_read_pg_projects())
 
 
 @app.route("/api/projects", methods=["POST"])
 def save_project():
-    """Upsert a project and its milestones/invoices/issues/notes into Excel."""
-    import datetime as _dt
+    """Upsert a project into Postgres. Milestones stay a flat comma-joined
+    string (milestones_text) matching the pre-cutover Excel behavior exactly.
+    Issues/notes upsert into the real project_issue/project_note tables via a
+    delete-then-reinsert for this project_id, mirroring the old
+    _upsert_normalized_tab's semantics on the tables that now matter."""
     proj = request.get_json(force=True)
-    if not EXCEL_FILE.exists():
-        return jsonify({"error": "Excel file not found"}), 500
 
     # Stable ID: reuse the one the client sent back (from a prior GET) if present,
     # otherwise this is a brand-new project — mint one now, once, and never derive
     # it from mutable fields like title again.
     proj_id = str(proj.get("id") or "").strip() or f"proj-{uuid.uuid4().hex[:8]}"
 
-    with workbook_lock(EXCEL_FILE):
-        wb = openpyxl.load_workbook(EXCEL_FILE, data_only=False)
-        tab = next((s for s in wb.sheetnames if s.strip() == "Project"), None)
-        if not tab:
-            return jsonify({"error": "Project sheet not found"}), 500
+    milestones = proj.get("milestones") or []
+    invoices   = proj.get("invoices")   or []
+    issues     = proj.get("issues")     or []
+    notes      = proj.get("notes")      or []
 
-        ws = wb[tab]
-        raw_headers = [str(c.value).replace('\xa0', '').strip() if c.value else "" for c in ws[1]]
+    paid_total    = sum(i.get("amount", 0) for i in invoices if i.get("status") == "Paid")
+    pending_total = sum(i.get("amount", 0) for i in invoices if i.get("status") == "Pending")
+    milestone_str = ", ".join(m.get("title", "") for m in milestones if m.get("title"))
 
-        def col_idx(name):
-            for i, h in enumerate(raw_headers):
-                if h.lower() == name.lower():
-                    return i + 1
-            return None
+    conn = _pg_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM project WHERE excel_project_id = %s", (proj_id,))
+            existing = cur.fetchone()
 
-        milestones = proj.get("milestones") or []
-        invoices   = proj.get("invoices")   or []
-        issues     = proj.get("issues")     or []
-        notes      = proj.get("notes")      or []
+            if existing:
+                cur.execute("""
+                    UPDATE project SET
+                        project_name = %s, category = %s, customer_name = %s, status = %s, phase = %s,
+                        start_date = %s, end_date = %s, contract_amount = %s, collected = %s,
+                        onedrive_path = %s, milestones_text = %s, invoiced = %s, pending_paid = %s,
+                        updated_at = now()
+                    WHERE excel_project_id = %s
+                """, (
+                    proj.get("title", ""), proj.get("category"), proj.get("facility", ""),
+                    proj.get("status", "In Progress"), proj.get("phase", "Planning"),
+                    proj.get("startDate") or None, proj.get("endDate") or None,
+                    proj.get("contractValue") or 0, paid_total or proj.get("collectedValue") or 0,
+                    proj.get("onedriveFolder"), milestone_str, paid_total or None, pending_total or None,
+                    proj_id,
+                ))
+            else:
+                cur.execute("SELECT to_char(now(), 'YY') AS yy")
+                yy = cur.fetchone()["yy"]
+                cur.execute(
+                    "INSERT INTO job_number_sequence (year, last_seq) VALUES (%s, 1) "
+                    "ON CONFLICT (year) DO UPDATE SET last_seq = job_number_sequence.last_seq + 1 "
+                    "RETURNING last_seq",
+                    (2000 + int(yy),),
+                )
+                seq = cur.fetchone()["last_seq"]
+                job_number = f"ARE-{yy}-{seq:03d}"
+                cur.execute("""
+                    INSERT INTO project (
+                        job_number, project_name, customer_name, category, status, phase,
+                        start_date, end_date, contract_amount, revised_contract_amount,
+                        estimated_cost, estimated_margin, collected, onedrive_path,
+                        milestones_text, invoiced, pending_paid, excel_project_id, origin,
+                        created_by, is_archived, created_at, updated_at
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0, 0, %s, %s, %s, %s, %s, %s,
+                        'manual', 'bid_tracker', false, now(), now()
+                    )
+                """, (
+                    job_number, proj.get("title", ""), proj.get("facility", ""), proj.get("category"),
+                    proj.get("status", "In Progress"), proj.get("phase", "Planning"),
+                    proj.get("startDate") or None, proj.get("endDate") or None,
+                    proj.get("contractValue") or 0, proj.get("contractValue") or 0,  # revised_contract_amount = contract_amount on create, no COs yet
+                    paid_total or proj.get("collectedValue") or 0,
+                    proj.get("onedriveFolder"), milestone_str, paid_total or None, pending_total or None,
+                    proj_id,
+                ))
 
-        paid_total    = sum(i.get("amount", 0) for i in invoices if i.get("status") == "Paid")
-        pending_total = sum(i.get("amount", 0) for i in invoices if i.get("status") == "Pending")
-        milestone_str = ", ".join(m.get("title", "") for m in milestones if m.get("title"))
+            cur.execute("UPDATE project_issue SET is_deleted = true WHERE project_id = %s", (proj_id,))
+            for iss in issues:
+                cur.execute(
+                    "INSERT INTO project_issue (project_id, title, priority, status, source, created_by, created_at, is_deleted) "
+                    "VALUES (%s, %s, %s, %s, 'bid_tracker', 'bid_tracker', now(), false)",
+                    (proj_id, iss.get("title", ""), iss.get("priority", "Medium"), iss.get("status", "Open")),
+                )
 
-        FIELD_MAP = {
-            "Project ID":           proj_id,
-            "PROJECT TITLE":        proj.get("title", ""),
-            "FACILITY":             proj.get("facility", ""),
-            "STATUS":               proj.get("status", "In Progress"),
-            "PHASE":                proj.get("phase", "Planning"),
-            "START DATE":           proj.get("startDate", ""),
-            "END DATE":             proj.get("endDate", ""),
-            "CONTRACT VALUE ($)":   proj.get("contractValue", ""),
-            "COLLECTED VALUE (%$)": paid_total or proj.get("collectedValue", ""),
-            "Onedrive location":    proj.get("onedriveFolder", ""),
-            "Milestones":           milestone_str,
-            "Invoices Amount ($)":  paid_total or "",
-            "Pending_Paid":         pending_total or "",
-        }
+            cur.execute("UPDATE project_note SET is_deleted = true WHERE project_id = %s", (proj_id,))
+            for n in notes:
+                cur.execute(
+                    "INSERT INTO project_note (project_id, text, source, created_by, created_at, is_deleted) "
+                    "VALUES (%s, %s, 'bid_tracker', 'bid_tracker', now(), false)",
+                    (proj_id, n),
+                )
 
-        # Match by stable Project ID — never by title, which is user-editable and
-        # would otherwise fork a renamed project into a new row (the bug this fixes).
-        id_col = col_idx("Project ID")
-        target_row = None
-        if id_col:
-            for row in ws.iter_rows(min_row=2):
-                if str(row[id_col - 1].value or "").strip() == proj_id:
-                    target_row = row[0].row
-                    break
-
-        if target_row is None:
-            new_row = [""] * len(raw_headers)
-            for col_name, value in FIELD_MAP.items():
-                idx = col_idx(col_name)
-                if idx:
-                    new_row[idx - 1] = value
-            ws.append(new_row)
-        else:
-            for col_name, value in FIELD_MAP.items():
-                idx = col_idx(col_name)
-                if idx:
-                    ws.cell(row=target_row, column=idx, value=value)
-
-        _upsert_normalized_tab(wb, "Project_Milestones", proj_id, milestones,
-            lambda pid, m, now: {
-                "Project ID":   pid,
-                "Milestone ID": str(m.get("id", "")),
-                "Title":        m.get("title", ""),
-                "Completed":    "Yes" if m.get("completed") else "No",
-                "Last Updated": now,
-            })
-
-        _upsert_normalized_tab(wb, "Project_Invoices", proj_id, invoices,
-            lambda pid, inv, now: {
-                "Project ID":   pid,
-                "Invoice ID":   str(inv.get("id", "")),
-                "Amount":       inv.get("amount", ""),
-                "Status":       inv.get("status", "Pending"),
-                "Last Updated": now,
-            })
-
-        _upsert_normalized_tab(wb, "Project_Issues", proj_id, issues,
-            lambda pid, iss, now: {
-                "Project ID":   pid,
-                "Issue ID":     str(iss.get("id", "")),
-                "Title":        iss.get("title", ""),
-                "Status":       iss.get("status", "Open"),
-                "Last Updated": now,
-            })
-
-        _upsert_normalized_tab(wb, "Project_Notes", proj_id, [{"text": n} for n in notes],
-            lambda pid, note, now: {
-                "Project ID":   pid,
-                "Note ID":      str(hash(note.get("text","")) % 10**6),
-                "Text":         note.get("text", ""),
-                "Created":      now,
-                "Last Updated": now,
-            })
-
-        atomic_save(wb, EXCEL_FILE)
+        conn.commit()
+    finally:
+        conn.close()
 
     return jsonify({"ok": True, "id": proj_id})
 
