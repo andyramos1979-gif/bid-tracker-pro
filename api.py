@@ -157,7 +157,8 @@ def get_bids():
                       "Lost": "Closed", "Archived": "Closed",
                       # Capture-engine decisions are active leads:
                       "Recommended": "Open", "Manual Review": "Open",
-                      "Prospect": "Open", "Active Bid": "Open"}
+                      "Prospect": "Open", "Active Bid": "Open",
+                      "Awarded": "Awarded"}
         status = status_map.get(status_raw, "Open")
 
         # Capture Intelligence decision fields (blank on legacy rows).
@@ -601,7 +602,10 @@ def save_bid():
 # Workflow stages a user can move an opportunity through. "Active Bid" is a
 # PURSUE status — the ONLY stage that authorizes folder-creating automation
 # (the watcher, gated on PURSUE_STATUSES, creates the folder on its next poll).
-_WORKFLOW_STAGES = {"Recommended", "Manual Review", "Prospect", "Active Bid", "Archived"}
+_WORKFLOW_STAGES = {"Recommended", "Manual Review", "Prospect", "Active Bid", "Awarded", "Archived"}
+# Phase 3A: "Awarded" is reachable ONLY from "Active Bid" (a won contract). It is
+# the precondition for promotion to a Financial Hub project.
+_AWARDED_FROM = {"Active Bid"}
 
 
 @app.route("/api/bids/status", methods=["POST"])
@@ -648,6 +652,12 @@ def set_bid_status():
         if target_row is None:
             return jsonify({"error": "bid not found"}), 404
 
+        old_status = str(ws.cell(row=target_row, column=status_col).value or "").strip() if status_col else ""
+        # Gate: Awarded may only be reached from Active Bid (Section 1 rule —
+        # Prospect / Recommended cannot jump straight to Awarded).
+        if stage == "Awarded" and old_status not in _AWARDED_FROM:
+            return jsonify({"error": f"Awarded requires Active Bid (current: '{old_status or 'none'}')"}), 409
+
         if status_col:
             ws.cell(row=target_row, column=status_col, value=stage)
         if updated_col:
@@ -675,14 +685,16 @@ def set_bid_status():
     try:
         from capture_engine import log_automation
         log_automation(opportunity_id=bid_id, title=title, user="bid-tracker-ui",
-                       trigger=f"stage→{stage}", action="set_workflow_status",
+                       trigger=f"{old_status or 'none'}→{stage}",
+                       action=("PROMOTION_STATUS_CHANGED" if stage == "Awarded" else "set_workflow_status"),
                        result=("error" if err else "ok"),
                        folder_created=folder_created, folder_path=folder_path,
                        error_message=err)
     except Exception:
         pass
-    return jsonify({"ok": True, "status": stage, "folderCreated": folder_created,
-                    "folderPath": folder_path, "error": err or None})
+    return jsonify({"ok": True, "status": stage, "oldStatus": old_status,
+                    "folderCreated": folder_created, "folderPath": folder_path,
+                    "error": err or None})
 
 
 @app.route("/api/automation-audit")
