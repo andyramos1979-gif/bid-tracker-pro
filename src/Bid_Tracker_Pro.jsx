@@ -1693,6 +1693,8 @@ export default function BidTrackerPro() {
   const [sortDir, setSortDir]       = useState("asc");
   const [showStarred, setShowStarred] = useState(false);
   const [expandedRow, setExpandedRow] = useState(null);
+  const [showAuditLog, setShowAuditLog] = useState(false);   // automation audit viewer
+  const [auditEvents, setAuditEvents]   = useState(null);    // null=loading, []=loaded
 
   // ── Projects state ──
   const [projects, setProjects]             = useState([]);
@@ -1780,11 +1782,23 @@ export default function BidTrackerPro() {
       .then(r => r.json())
       .then(res => {
         if (res && res.ok) {
-          showToast(stage === "Active Bid" ? "Bidding — folder will be created ✓" : `Moved to ${stage} ✓`, "success");
+          const msg = res.folderCreated ? "Bidding — estimate folder created ✓"
+                    : stage === "Active Bid" ? "Marked Active Bid ✓"
+                    : `Moved to ${stage} ✓`;
+          showToast(msg, "success");
         } else { showToast("Status update failed", "warn"); }
       })
       .catch(() => showToast("Status update failed — check API server", "warn"));
   }, [showToast]);
+
+  const openAuditLog = useCallback(() => {
+    setShowAuditLog(true);
+    setAuditEvents(null);
+    fetch("/api/automation-audit?limit=100")
+      .then(r => r.json())
+      .then(d => setAuditEvents(Array.isArray(d) ? d : []))
+      .catch(() => setAuditEvents([]));
+  }, []);
 
   const deleteBid = useCallback(id  => { setBids(bs => bs.filter(b => b.id !== id)); showToast("Bid deleted", "warn"); }, [showToast]);
   const addBid    = useCallback(bid => {
@@ -2038,6 +2052,11 @@ export default function BidTrackerPro() {
                   <Plus className="w-4 h-4" /> New Bid
                 </button>
               )}
+
+              <button onClick={openAuditLog} title="Automation audit log"
+                className="flex items-center gap-2 px-4 py-2 bg-surface-raised rounded-xl text-sm font-semibold border border-border hover:bg-bg-subtle transition-colors">
+                <Activity className="w-4 h-4" /><span className="hidden lg:inline">Automation Log</span>
+              </button>
 
               <button onClick={exportToCSV}
                 className="flex items-center gap-2 px-4 py-2 bg-surface-raised rounded-xl text-sm font-semibold border border-border hover:bg-bg-subtle transition-colors">
@@ -2650,6 +2669,62 @@ export default function BidTrackerPro() {
           stats={projectStats}
           onClose={() => setShowOpsModal(false)}
         />
+      )}
+
+      {showAuditLog && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setShowAuditLog(false)}>
+          <div className="w-full max-w-3xl max-h-[85vh] flex flex-col bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+              <div className="flex items-center gap-2">
+                <Activity className="w-5 h-5 text-info" />
+                <h3 className="text-base font-bold text-text">Automation Audit Log</h3>
+                <span className="text-xs text-text-faint">{Array.isArray(auditEvents) ? `${auditEvents.length} events` : ""}</span>
+              </div>
+              <button onClick={() => setShowAuditLog(false)} className="text-text-faint hover:text-text-secondary"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="overflow-auto">
+              {auditEvents === null ? (
+                <div className="px-5 py-12 text-center text-text-muted text-sm">Loading…</div>
+              ) : auditEvents.length === 0 ? (
+                <div className="px-5 py-12 text-center text-text-faint text-sm">No automation events recorded yet.</div>
+              ) : (
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-bg-app text-[10px] uppercase tracking-wider text-text-faint border-b border-border">
+                    <tr>
+                      <th className="text-left px-4 py-2.5">When</th>
+                      <th className="text-left px-3 py-2.5">Opportunity</th>
+                      <th className="text-left px-3 py-2.5">Trigger</th>
+                      <th className="text-left px-3 py-2.5">Action</th>
+                      <th className="text-left px-3 py-2.5">Result</th>
+                      <th className="text-left px-4 py-2.5">Folder</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {auditEvents.map((e, i) => (
+                      <tr key={i} className="hover:bg-surface-raised/30">
+                        <td className="px-4 py-2.5 text-text-muted whitespace-nowrap font-mono">{e.timestamp ? new Date(e.timestamp).toLocaleString() : "—"}</td>
+                        <td className="px-3 py-2.5 text-text-secondary max-w-[180px] truncate" title={`${e.title || ""} (${e.opportunity_id || ""})`}>{e.title || e.opportunity_id || "—"}</td>
+                        <td className="px-3 py-2.5 text-text-muted font-mono">{e.trigger || "—"}</td>
+                        <td className="px-3 py-2.5 font-semibold text-text">{e.action || "—"}</td>
+                        <td className="px-3 py-2.5">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${e.error_message ? "bg-danger/20 text-danger" : "bg-success-soft text-success"}`}>{e.error_message ? "error" : (e.result || "ok")}</span>
+                        </td>
+                        <td className="px-4 py-2.5">
+                          {e.folder_created
+                            ? <span className="text-success font-mono text-[10px]" title={e.folder_path}>✓ {e.folder_path ? e.folder_path.split("/").pop() : "created"}</span>
+                            : <span className="text-text-faint">—</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div className="px-5 py-3 border-t border-border text-[11px] text-text-faint">
+              Every folder creation, download, and workflow change writes an immutable audit record.
+            </div>
+          </div>
+        </div>
       )}
 
       {toast && <Toast message={toast.msg} type={toast.type} onDone={() => setToast(null)} />}
