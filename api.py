@@ -873,7 +873,17 @@ def project_summary(job_number):
         return jsonify({"error": "project not found in Financial Hub"}), 404
     if r.status_code != 200:
         return jsonify({"error": "Financial Hub error", "detail": r.text[:300]}), 502
-    return jsonify(r.json())
+    data = r.json()
+    # Phase 3F — merge the per-category job-cost breakdown (Budget/Actual/Remaining).
+    try:
+        rc = _rq.get(f"{HUB_URL}/api/projects/db/{job_number}/cost-summary", timeout=15)
+        if rc.status_code == 200:
+            cs = rc.json()
+            data["categories"]  = cs.get("categories", [])
+            data["cost_totals"] = cs.get("totals", {})
+    except Exception:
+        pass
+    return jsonify(data)
 
 
 @app.route("/api/health")

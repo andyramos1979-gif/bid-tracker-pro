@@ -2275,18 +2275,44 @@ export default function BidTrackerPro() {
                                             ) : costData[bid.id].error ? (
                                               <span className="text-[11px] text-danger">{costData[bid.id].error}</span>
                                             ) : (
-                                              <div className="flex flex-wrap gap-1.5">
-                                                {[
-                                                  ["Committed", `$${Number(costData[bid.id].committed_cost || 0).toLocaleString()} · ${costData[bid.id].committed_po_count || 0} PO`],
-                                                  ["Actual", `$${Number(costData[bid.id].actual_cost || 0).toLocaleString()}`],
-                                                  ["Projected", `$${Number(costData[bid.id].projected_cost || 0).toLocaleString()}`],
-                                                  ["Contract", `$${Number(costData[bid.id].contract_value || 0).toLocaleString()}`],
-                                                  ["Margin", `${costData[bid.id].margin_pct ?? 0}%`],
-                                                ].map(([k, v]) => (
-                                                  <span key={k} className="px-2 py-1 rounded-md border border-border bg-surface-raised/40 text-[11px] text-text-muted">
-                                                    <span className="text-text-faint">{k}:</span> <span className="font-mono font-semibold text-text-secondary">{v}</span>
-                                                  </span>
-                                                ))}
+                                              <div className="flex flex-col gap-2">
+                                                <div className="flex flex-wrap gap-1.5">
+                                                  {[
+                                                    ["Committed", `$${Number(costData[bid.id].committed_cost || 0).toLocaleString()} · ${costData[bid.id].committed_po_count || 0} PO`],
+                                                    ["Actual", `$${Number(costData[bid.id].actual_cost || 0).toLocaleString()}`],
+                                                    ["Projected", `$${Number(costData[bid.id].projected_cost || 0).toLocaleString()}`],
+                                                    ["Contract", `$${Number(costData[bid.id].contract_value || 0).toLocaleString()}`],
+                                                    ["Margin", `${costData[bid.id].margin_pct ?? 0}%`],
+                                                  ].map(([k, v]) => (
+                                                    <span key={k} className="px-2 py-1 rounded-md border border-border bg-surface-raised/40 text-[11px] text-text-muted">
+                                                      <span className="text-text-faint">{k}:</span> <span className="font-mono font-semibold text-text-secondary">{v}</span>
+                                                    </span>
+                                                  ))}
+                                                </div>
+                                                {Array.isArray(costData[bid.id].categories) && costData[bid.id].categories.length > 0 && (
+                                                  <div className="overflow-x-auto">
+                                                    <table className="text-[11px] border border-border rounded-lg overflow-hidden w-auto">
+                                                      <thead>
+                                                        <tr className="text-text-faint bg-surface-raised/40 uppercase tracking-wide text-[10px]">
+                                                          <th className="text-left px-2.5 py-1 font-semibold">Cost Category</th>
+                                                          <th className="text-right px-2.5 py-1 font-semibold">Budget</th>
+                                                          <th className="text-right px-2.5 py-1 font-semibold">Actual</th>
+                                                          <th className="text-right px-2.5 py-1 font-semibold">Remaining</th>
+                                                        </tr>
+                                                      </thead>
+                                                      <tbody>
+                                                        {costData[bid.id].categories.map(cc => (
+                                                          <tr key={cc.category} className="border-t border-border">
+                                                            <td className="px-2.5 py-1 text-text-secondary">{cc.category}</td>
+                                                            <td className="px-2.5 py-1 text-right font-mono text-text-muted">${Number(cc.budget || 0).toLocaleString()}</td>
+                                                            <td className="px-2.5 py-1 text-right font-mono text-text-muted">${Number(cc.actual || 0).toLocaleString()}</td>
+                                                            <td className={`px-2.5 py-1 text-right font-mono ${Number(cc.remaining) < 0 ? "text-danger" : "text-text-muted"}`}>${Number(cc.remaining || 0).toLocaleString()}</td>
+                                                          </tr>
+                                                        ))}
+                                                      </tbody>
+                                                    </table>
+                                                  </div>
+                                                )}
                                               </div>
                                             )
                                           )}
