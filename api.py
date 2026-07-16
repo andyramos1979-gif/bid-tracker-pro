@@ -654,15 +654,35 @@ def set_bid_status():
             ws.cell(row=target_row, column=updated_col, value=_dt.datetime.now().strftime("%Y-%m-%d %H:%M"))
         atomic_save(wb, EXCEL_FILE)
 
-    # Forensic audit trail (no folder created here).
+    # "Bid On This" (→ Active Bid) is the sanctioned, user-initiated folder
+    # trigger. Create the estimate folder NOW (idempotent) instead of waiting for
+    # the 60s watcher. create_estimate_folders takes its OWN workbook lock, so we
+    # call it AFTER releasing ours above to avoid a nested/deadlocked lock.
+    folder_created, folder_path, err = False, "", ""
+    if stage == "Active Bid":
+        try:
+            import json as _json
+            import create_estimate_folders as cef
+            cef.run()   # creates folders for Active-Bid rows not yet in the manifest
+            manifest = _json.loads(cef.MANIFEST.read_text()) if cef.MANIFEST.exists() else {}
+            folder_path = (manifest.get(bid_id) or {}).get("folder", "")
+            folder_created = bool(folder_path)
+        except Exception as e:
+            err = str(e)
+
+    # Forensic audit trail for the transition (create_estimate_folders logs the
+    # folder-creation event itself; this records the user's stage change).
     try:
         from capture_engine import log_automation
         log_automation(opportunity_id=bid_id, title=title, user="bid-tracker-ui",
                        trigger=f"stage→{stage}", action="set_workflow_status",
-                       result="ok", folder_created=False)
+                       result=("error" if err else "ok"),
+                       folder_created=folder_created, folder_path=folder_path,
+                       error_message=err)
     except Exception:
         pass
-    return jsonify({"ok": True, "status": stage})
+    return jsonify({"ok": True, "status": stage, "folderCreated": folder_created,
+                    "folderPath": folder_path, "error": err or None})
 
 
 @app.route("/api/automation-audit")
