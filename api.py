@@ -153,8 +153,21 @@ def get_bids():
             score = 0
 
         status_raw = str(d.get("Status") or "Identified")
-        status_map = {"Identified": "Open", "Submitted": "Open", "Won": "Awarded", "Lost": "Closed", "Archived": "Closed"}
+        status_map = {"Identified": "Open", "Submitted": "Open", "Won": "Awarded",
+                      "Lost": "Closed", "Archived": "Closed",
+                      # Capture-engine decisions are active leads:
+                      "Recommended": "Open", "Manual Review": "Open",
+                      "Prospect": "Open", "Active Bid": "Open"}
         status = status_map.get(status_raw, "Open")
+
+        # Capture Intelligence decision fields (blank on legacy rows).
+        def _int(v):
+            try: return int(float(v))
+            except (TypeError, ValueError): return 0
+        def _float(v):
+            try: return round(float(v), 3)
+            except (TypeError, ValueError): return 0.0
+        decision = str(d.get("Decision") or "").strip()
 
         notes = str(d.get("Notes / Rationale") or "")
         # SAM Link: dedicated column first, fall back to regex from Notes
@@ -199,6 +212,15 @@ def get_bids():
             "postedDate":    str(d.get("Date Added") or ""),
             "naics":         str(d.get("NAICS") or ""),
             "folderPath":    str(d.get("Folder Path") or ""),
+            # ── Capture Intelligence decision fields ──
+            "decision":             decision or ("Recommended" if score >= 85 else ""),
+            "finalScore":           _int(d.get("Final Score") or score),
+            "decisionReason":       str(d.get("Decision Reason") or ""),
+            "capabilityCount":      _int(d.get("Capability Count")),
+            "blacklistHits":        _int(d.get("Blacklist Hits")),
+            "historicalSimilarity": _float(d.get("Historical Similarity")),
+            "confidence":           _int(d.get("Confidence")),
+            "lastReviewDate":       str(d.get("Last Review Date") or ""),
             "notes":         [],
             "chk_sf1449":     bool(d.get("SF1449")),
             "chk_sow_pws":    bool(d.get("SOW/PWS")),
