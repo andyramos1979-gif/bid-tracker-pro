@@ -1877,9 +1877,18 @@ export default function BidTrackerPro() {
   }, [costData, showToast]);
 
   // Phase 4A — generate the Project Startup Pack for a promoted bid (idempotent).
+  // Phase 4C — read-only live startup execution status on the promoted card.
+  const loadStartup = useCallback((bid) => {
+    if (!bid.jobNumber) return;
+    fetch(`/api/projects/${encodeURIComponent(bid.jobNumber)}/startup`)
+      .then(r => r.json())
+      .then(j => setStartupData(sd => ({ ...sd, [bid.id]: { exists: !!j.exists, pack: j.startup || null } })))
+      .catch(() => {});
+  }, []);
+
   const initProject = useCallback((bid) => {
     if (!bid.jobNumber) return;
-    setStartupData(sd => ({ ...sd, [bid.id]: { loading: true } }));
+    setStartupData(sd => ({ ...sd, [bid.id]: { ...(sd[bid.id] || {}), loading: true } }));
     fetch("/api/bids/initialize-project", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ jobNumber: bid.jobNumber }),
@@ -1887,15 +1896,25 @@ export default function BidTrackerPro() {
       .then(r => r.json())
       .then(j => {
         if (j.startup) {
-          setStartupData(sd => ({ ...sd, [bid.id]: j.startup }));
+          setStartupData(sd => ({ ...sd, [bid.id]: { exists: true, pack: j.startup, loading: false } }));
           showToast(j.created ? "Project startup pack created ✓" : "Startup pack ready ✓", "success");
+          loadStartup(bid);   // refresh with enriched crew/milestone detail
         } else {
-          setStartupData(sd => { const n = { ...sd }; delete n[bid.id]; return n; });
+          setStartupData(sd => ({ ...sd, [bid.id]: { error: j.error || "Startup failed" } }));
           showToast(j.error || "Startup failed", "warn");
         }
       })
-      .catch(() => { setStartupData(sd => { const n = { ...sd }; delete n[bid.id]; return n; }); showToast("Startup failed — check API + Financial Hub", "warn"); });
-  }, [showToast]);
+      .catch(() => { setStartupData(sd => ({ ...sd, [bid.id]: { error: "Startup failed" } })); showToast("Startup failed — check API + Financial Hub", "warn"); });
+  }, [showToast, loadStartup]);
+
+  // Auto-load startup status when an Awarded, promoted bid row is expanded.
+  useEffect(() => {
+    if (!expandedRow) return;
+    const b = (bids || []).find(x => x.id === expandedRow);
+    if (b && b.workflowStatus === "Awarded" && b.jobNumber && b.financialHubProjectId && !startupData[b.id]) {
+      loadStartup(b);
+    }
+  }, [expandedRow, bids, startupData, loadStartup]);
 
   // Phase 3H — write additive per-bid meta (follow-up / probability / gov response).
   // Optimistic; never touches Status.
@@ -2507,32 +2526,46 @@ export default function BidTrackerPro() {
                                                 <DollarSign className="w-3.5 h-3.5" /> {costData[bid.id] && !costData[bid.id].loading ? "Hide Costs" : "View Costs"}
                                               </button>
                                             )}
-                                            {bid.jobNumber && (
-                                              <button onClick={() => initProject(bid)} disabled={startupData[bid.id]?.loading}
-                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-500/15 text-orange-400 border border-orange-500/30 text-xs font-bold hover:bg-orange-500/25 disabled:opacity-60 transition-colors">
-                                                <HardHat className="w-3.5 h-3.5" /> {startupData[bid.id]?.loading ? "Initializing…" : (startupData[bid.id] ? "Startup Pack ✓" : "Initialize Project")}
-                                              </button>
-                                            )}
+                                            {bid.jobNumber && (() => {
+                                              const sd = startupData[bid.id];
+                                              if (sd?.loading) return <span className="text-[11px] text-text-faint">Initializing startup pack…</span>;
+                                              if (sd?.pack) return null;   // execution status shown below
+                                              return (
+                                                <button onClick={() => initProject(bid)}
+                                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-500/15 text-orange-400 border border-orange-500/30 text-xs font-bold hover:bg-orange-500/25 transition-colors">
+                                                  <HardHat className="w-3.5 h-3.5" /> Initialize Project
+                                                </button>
+                                              );
+                                            })()}
                                             {bid.promotionDate && <span className="text-[11px] text-text-faint">Promoted {bid.promotionDate}</span>}
                                           </div>
-                                          {startupData[bid.id] && !startupData[bid.id].loading && !startupData[bid.id].error && (
-                                            <div className="flex flex-wrap items-center gap-1.5">
-                                              <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide border bg-emerald-500/15 text-emerald-400 border-emerald-500/30">
-                                                Project {startupData[bid.id].status} · {startupData[bid.id].completion_pct}%
-                                              </span>
-                                              {[
-                                                ["Folders", "12"],
-                                                ["Tasks", (startupData[bid.id].tasks || []).length],
-                                                ["Milestones", (startupData[bid.id].milestone_ids || []).length],
-                                                ["Checklist", `${(startupData[bid.id].checklist || []).filter(c => c.done).length}/${(startupData[bid.id].checklist || []).length}`],
-                                                ["Workspace", startupData[bid.id].workspace_code || "—"],
-                                              ].map(([k, v]) => (
-                                                <span key={k} className="px-2 py-1 rounded-md border border-border bg-surface-raised/40 text-[11px] text-text-muted" title={startupData[bid.id].folder_path || ""}>
-                                                  <span className="text-text-faint">{k}:</span> <span className="font-mono font-semibold text-text-secondary">{v}</span>
+                                          {startupData[bid.id]?.pack && (() => {
+                                            const pack = startupData[bid.id].pack;
+                                            const tasks = pack.tasks || [], checklist = pack.checklist || [], ms = pack.milestones || [];
+                                            const pm = (pack.crew || []).find(c => c.role === "Project Manager")?.name;
+                                            const isActive = pack.status === "Active" || pack.project_status === "ACTIVE";
+                                            const foldersOk = pack.folder_path && !String(pack.folder_path).startsWith("(");
+                                            return (
+                                              <div className="flex flex-wrap items-center gap-1.5">
+                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide border ${isActive ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" : "bg-blue-500/15 text-blue-400 border-blue-500/30"}`}>
+                                                  {isActive ? "Active" : `Startup ${pack.status}`} · {pack.completion_pct}%
                                                 </span>
-                                              ))}
-                                            </div>
-                                          )}
+                                                {[
+                                                  ["PM", pm || "unassigned"],
+                                                  ["Tasks", `${tasks.filter(t => t.done).length}/${tasks.length}`],
+                                                  ["Checklist", `${checklist.filter(c => c.done).length}/${checklist.length}`],
+                                                  ["Milestones", `${ms.filter(m => m.completed).length}/${ms.length || (pack.milestone_ids || []).length}`],
+                                                  ["Folders", foldersOk ? "12" : "0"],
+                                                ].map(([k, v]) => (
+                                                  <span key={k} className="px-2 py-1 rounded-md border border-border bg-surface-raised/40 text-[11px] text-text-muted" title={pack.folder_path || ""}>
+                                                    <span className="text-text-faint">{k}:</span> <span className="font-mono font-semibold text-text-secondary">{v}</span>
+                                                  </span>
+                                                ))}
+                                                <a href={`http://${window.location.hostname}:5175`} target="_blank" rel="noreferrer"
+                                                  className="text-[11px] font-semibold text-orange-400 hover:underline">Manage startup in Financial Hub →</a>
+                                              </div>
+                                            );
+                                          })()}
                                           {costData[bid.id] && (
                                             costData[bid.id].loading ? (
                                               <span className="text-[11px] text-text-faint">Loading project costs…</span>
