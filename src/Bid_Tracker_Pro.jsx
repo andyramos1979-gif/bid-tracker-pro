@@ -1745,6 +1745,7 @@ export default function BidTrackerPro() {
   const [showAuditLog, setShowAuditLog] = useState(false);   // automation audit viewer
   const [auditEvents, setAuditEvents]   = useState(null);    // null=loading, []=loaded
   const [costData, setCostData]         = useState({});      // bid.id → Hub project cost/procurement summary
+  const [startupData, setStartupData]   = useState({});      // bid.id → project startup pack (Phase 4A)
 
   // ── Projects state ──
   const [projects, setProjects]             = useState([]);
@@ -1874,6 +1875,27 @@ export default function BidTrackerPro() {
       .then(d => setCostData(cd => ({ ...cd, [bid.id]: d })))
       .catch(() => { setCostData(cd => { const n = { ...cd }; delete n[bid.id]; return n; }); showToast("Could not load project costs", "warn"); });
   }, [costData, showToast]);
+
+  // Phase 4A — generate the Project Startup Pack for a promoted bid (idempotent).
+  const initProject = useCallback((bid) => {
+    if (!bid.jobNumber) return;
+    setStartupData(sd => ({ ...sd, [bid.id]: { loading: true } }));
+    fetch("/api/bids/initialize-project", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jobNumber: bid.jobNumber }),
+    })
+      .then(r => r.json())
+      .then(j => {
+        if (j.startup) {
+          setStartupData(sd => ({ ...sd, [bid.id]: j.startup }));
+          showToast(j.created ? "Project startup pack created ✓" : "Startup pack ready ✓", "success");
+        } else {
+          setStartupData(sd => { const n = { ...sd }; delete n[bid.id]; return n; });
+          showToast(j.error || "Startup failed", "warn");
+        }
+      })
+      .catch(() => { setStartupData(sd => { const n = { ...sd }; delete n[bid.id]; return n; }); showToast("Startup failed — check API + Financial Hub", "warn"); });
+  }, [showToast]);
 
   // Phase 3H — write additive per-bid meta (follow-up / probability / gov response).
   // Optimistic; never touches Status.
@@ -2485,8 +2507,32 @@ export default function BidTrackerPro() {
                                                 <DollarSign className="w-3.5 h-3.5" /> {costData[bid.id] && !costData[bid.id].loading ? "Hide Costs" : "View Costs"}
                                               </button>
                                             )}
+                                            {bid.jobNumber && (
+                                              <button onClick={() => initProject(bid)} disabled={startupData[bid.id]?.loading}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-500/15 text-orange-400 border border-orange-500/30 text-xs font-bold hover:bg-orange-500/25 disabled:opacity-60 transition-colors">
+                                                <HardHat className="w-3.5 h-3.5" /> {startupData[bid.id]?.loading ? "Initializing…" : (startupData[bid.id] ? "Startup Pack ✓" : "Initialize Project")}
+                                              </button>
+                                            )}
                                             {bid.promotionDate && <span className="text-[11px] text-text-faint">Promoted {bid.promotionDate}</span>}
                                           </div>
+                                          {startupData[bid.id] && !startupData[bid.id].loading && !startupData[bid.id].error && (
+                                            <div className="flex flex-wrap items-center gap-1.5">
+                                              <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide border bg-emerald-500/15 text-emerald-400 border-emerald-500/30">
+                                                Project {startupData[bid.id].status} · {startupData[bid.id].completion_pct}%
+                                              </span>
+                                              {[
+                                                ["Folders", "12"],
+                                                ["Tasks", (startupData[bid.id].tasks || []).length],
+                                                ["Milestones", (startupData[bid.id].milestone_ids || []).length],
+                                                ["Checklist", `${(startupData[bid.id].checklist || []).filter(c => c.done).length}/${(startupData[bid.id].checklist || []).length}`],
+                                                ["Workspace", startupData[bid.id].workspace_code || "—"],
+                                              ].map(([k, v]) => (
+                                                <span key={k} className="px-2 py-1 rounded-md border border-border bg-surface-raised/40 text-[11px] text-text-muted" title={startupData[bid.id].folder_path || ""}>
+                                                  <span className="text-text-faint">{k}:</span> <span className="font-mono font-semibold text-text-secondary">{v}</span>
+                                                </span>
+                                              ))}
+                                            </div>
+                                          )}
                                           {costData[bid.id] && (
                                             costData[bid.id].loading ? (
                                               <span className="text-[11px] text-text-faint">Loading project costs…</span>

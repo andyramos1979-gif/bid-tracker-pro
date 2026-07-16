@@ -1045,6 +1045,36 @@ def project_summary(job_number):
     return jsonify(data)
 
 
+@app.route("/api/bids/initialize-project", methods=["POST"])
+def bid_initialize_project():
+    """Phase 4A — generate the Project Startup Pack for a promoted bid via the Hub
+    service layer (idempotent). Bid Tracker never writes project tables directly."""
+    import requests as _rq
+    body = request.get_json(force=True) or {}
+    job_number = str(body.get("jobNumber") or body.get("job_number") or "").strip()
+    if not job_number:
+        return jsonify({"error": "jobNumber required — promote the bid to a project first"}), 400
+    try:
+        r = _rq.post(f"{HUB_URL}/api/projects/{job_number}/startup",
+                     json={"performed_by": "bid-tracker-ui"}, timeout=60)
+    except Exception as e:
+        return jsonify({"error": f"Financial Hub unreachable: {e}"}), 502
+    if r.status_code != 200:
+        return jsonify({"error": "startup failed", "detail": r.text[:300]}), 502
+    return jsonify(r.json())
+
+
+@app.route("/api/projects/<path:job_number>/startup")
+def project_startup(job_number):
+    """Read-only proxy of a project's startup-pack status."""
+    import requests as _rq
+    try:
+        r = _rq.get(f"{HUB_URL}/api/projects/{job_number}/startup", timeout=15)
+    except Exception as e:
+        return jsonify({"error": f"Financial Hub unreachable: {e}"}), 502
+    return jsonify(r.json()), (200 if r.status_code == 200 else r.status_code)
+
+
 @app.route("/api/health")
 def health():
     return jsonify({
