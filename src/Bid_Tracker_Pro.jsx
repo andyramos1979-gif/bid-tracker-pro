@@ -1697,6 +1697,7 @@ export default function BidTrackerPro() {
   const [expandedRow, setExpandedRow] = useState(null);
   const [showAuditLog, setShowAuditLog] = useState(false);   // automation audit viewer
   const [auditEvents, setAuditEvents]   = useState(null);    // null=loading, []=loaded
+  const [costData, setCostData]         = useState({});      // bid.id → Hub project cost/procurement summary
 
   // ── Projects state ──
   const [projects, setProjects]             = useState([]);
@@ -1814,6 +1815,18 @@ export default function BidTrackerPro() {
       })
       .catch(() => showToast("Promotion failed — check API + Financial Hub", "warn"));
   }, [showToast]);
+
+  // Phase 3E — pull the Financial Hub project cost/procurement summary (committed
+  // cost, PO count, actual/projected/margin) for a promoted bid. Read-only proxy.
+  const viewCosts = useCallback((bid) => {
+    if (!bid.jobNumber) return;
+    if (costData[bid.id]) { setCostData(cd => { const n = { ...cd }; delete n[bid.id]; return n; }); return; }
+    setCostData(cd => ({ ...cd, [bid.id]: { loading: true } }));
+    fetch(`/api/projects/${encodeURIComponent(bid.jobNumber)}/summary`)
+      .then(r => r.json())
+      .then(d => setCostData(cd => ({ ...cd, [bid.id]: d })))
+      .catch(() => { setCostData(cd => { const n = { ...cd }; delete n[bid.id]; return n; }); showToast("Could not load project costs", "warn"); });
+  }, [costData, showToast]);
 
   const openAuditLog = useCallback(() => {
     setShowAuditLog(true);
@@ -2239,15 +2252,44 @@ export default function BidTrackerPro() {
                                     )}
                                     {bid.workflowStatus === "Awarded" && (
                                       bid.financialHubProjectId ? (
-                                        <div className="flex flex-wrap items-center gap-2">
-                                          <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-xs font-bold">
-                                            <CheckCircle2 className="w-3.5 h-3.5" /> PROJECT CREATED · {bid.jobNumber || `#${bid.financialHubProjectId}`}
-                                          </span>
-                                          <a href={`http://${window.location.hostname}:5175/projects`} target="_blank" rel="noreferrer"
-                                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-text-secondary hover:bg-bg-subtle transition-colors">
-                                            <ExternalLink className="w-3.5 h-3.5" /> Open in Financial Hub
-                                          </a>
-                                          {bid.promotionDate && <span className="text-[11px] text-text-faint">Promoted {bid.promotionDate}</span>}
+                                        <div className="flex flex-col gap-2 w-full">
+                                          <div className="flex flex-wrap items-center gap-2">
+                                            <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-xs font-bold">
+                                              <CheckCircle2 className="w-3.5 h-3.5" /> PROJECT CREATED · {bid.jobNumber || `#${bid.financialHubProjectId}`}
+                                            </span>
+                                            <a href={`http://${window.location.hostname}:5175/projects`} target="_blank" rel="noreferrer"
+                                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-text-secondary hover:bg-bg-subtle transition-colors">
+                                              <ExternalLink className="w-3.5 h-3.5" /> Open in Financial Hub
+                                            </a>
+                                            {bid.jobNumber && (
+                                              <button onClick={() => viewCosts(bid)}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-text-secondary hover:bg-bg-subtle transition-colors">
+                                                <DollarSign className="w-3.5 h-3.5" /> {costData[bid.id] && !costData[bid.id].loading ? "Hide Costs" : "View Costs"}
+                                              </button>
+                                            )}
+                                            {bid.promotionDate && <span className="text-[11px] text-text-faint">Promoted {bid.promotionDate}</span>}
+                                          </div>
+                                          {costData[bid.id] && (
+                                            costData[bid.id].loading ? (
+                                              <span className="text-[11px] text-text-faint">Loading project costs…</span>
+                                            ) : costData[bid.id].error ? (
+                                              <span className="text-[11px] text-danger">{costData[bid.id].error}</span>
+                                            ) : (
+                                              <div className="flex flex-wrap gap-1.5">
+                                                {[
+                                                  ["Committed", `$${Number(costData[bid.id].committed_cost || 0).toLocaleString()} · ${costData[bid.id].committed_po_count || 0} PO`],
+                                                  ["Actual", `$${Number(costData[bid.id].actual_cost || 0).toLocaleString()}`],
+                                                  ["Projected", `$${Number(costData[bid.id].projected_cost || 0).toLocaleString()}`],
+                                                  ["Contract", `$${Number(costData[bid.id].contract_value || 0).toLocaleString()}`],
+                                                  ["Margin", `${costData[bid.id].margin_pct ?? 0}%`],
+                                                ].map(([k, v]) => (
+                                                  <span key={k} className="px-2 py-1 rounded-md border border-border bg-surface-raised/40 text-[11px] text-text-muted">
+                                                    <span className="text-text-faint">{k}:</span> <span className="font-mono font-semibold text-text-secondary">{v}</span>
+                                                  </span>
+                                                ))}
+                                              </div>
+                                            )
+                                          )}
                                         </div>
                                       ) : (
                                         <button onClick={() => promoteBid(bid)}
