@@ -11,7 +11,7 @@ import {
   ShieldCheck, Trash2, ClipboardCheck, ArrowRight, Save,
   Briefcase, FolderKanban, AlertTriangle, TrendingUp, CheckSquare, Wallet,
   AlertCircle, Play, Pause, Activity, Globe, Sun, Moon,
-  Layers, Trophy
+  Layers, Trophy, ExternalLink
 } from "lucide-react";
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
@@ -1793,6 +1793,28 @@ export default function BidTrackerPro() {
       .catch(() => showToast("Status update failed — check API server", "warn"));
   }, [showToast]);
 
+  // Phase 3B — promote an Awarded bid to a Financial Hub project (service layer;
+  // Bid Tracker never writes the Hub DB directly). Confirm → API → store IDs.
+  const promoteBid = useCallback((bid) => {
+    if (!window.confirm(`Promote "${bid.title}" to a Financial Hub project?\n\nThis creates a permanent project and job number in Financial Hub (the system of record).`)) return;
+    fetch("/api/bids/promote", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: bid.id, title: bid.title }),
+    })
+      .then(r => r.json().then(j => ({ ok: r.ok, j })))
+      .then(({ ok, j }) => {
+        if ((ok || j.already) && j.job_number) {
+          setBids(bs => bs.map(b => b.id === bid.id
+            ? { ...b, financialHubProjectId: String(j.project_id), jobNumber: j.job_number, promotionStatus: "Promoted" }
+            : b));
+          showToast(`Project created — ${j.job_number} ✓`, "success");
+        } else {
+          showToast(j.error || "Promotion failed", "warn");
+        }
+      })
+      .catch(() => showToast("Promotion failed — check API + Financial Hub", "warn"));
+  }, [showToast]);
+
   const openAuditLog = useCallback(() => {
     setShowAuditLog(true);
     setAuditEvents(null);
@@ -2216,9 +2238,23 @@ export default function BidTrackerPro() {
                                       </>
                                     )}
                                     {bid.workflowStatus === "Awarded" && (
-                                      <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-yellow-500/15 text-yellow-400 border border-yellow-500/30 text-xs font-bold">
-                                        <Trophy className="w-3.5 h-3.5" /> Awarded — ready to promote to Financial Hub (Phase 3B)
-                                      </span>
+                                      bid.financialHubProjectId ? (
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-xs font-bold">
+                                            <CheckCircle2 className="w-3.5 h-3.5" /> PROJECT CREATED · {bid.jobNumber || `#${bid.financialHubProjectId}`}
+                                          </span>
+                                          <a href={`http://${window.location.hostname}:5175`} target="_blank" rel="noreferrer"
+                                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-text-secondary hover:bg-bg-subtle transition-colors">
+                                            <ExternalLink className="w-3.5 h-3.5" /> Open Financial Hub
+                                          </a>
+                                          {bid.promotionDate && <span className="text-[11px] text-text-faint">Promoted {bid.promotionDate}</span>}
+                                        </div>
+                                      ) : (
+                                        <button onClick={() => promoteBid(bid)}
+                                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-yellow-500/15 text-yellow-400 border border-yellow-500/30 text-xs font-bold hover:bg-yellow-500/25 transition-colors">
+                                          <Trophy className="w-3.5 h-3.5" /> Promote to Financial Hub Project
+                                        </button>
+                                      )
                                     )}
                                     {bid.workflowStatus && bid.workflowStatus !== "Archived" && bid.workflowStatus !== "Awarded" && (
                                       <button onClick={() => setStage(bid, "Archived")}

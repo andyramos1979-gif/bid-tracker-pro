@@ -223,6 +223,11 @@ def get_bids():
             "historicalSimilarity": _float(d.get("Historical Similarity")),
             "confidence":           _int(d.get("Confidence")),
             "lastReviewDate":       str(d.get("Last Review Date") or ""),
+            # ── Phase 3B promotion fields ──
+            "financialHubProjectId": str(d.get("Financial Hub Project ID") or ""),
+            "jobNumber":             str(d.get("Job Number") or ""),
+            "promotionStatus":       str(d.get("Promotion Status") or ""),
+            "promotionDate":         str(d.get("Promotion Date") or ""),
             "notes":         [],
             "chk_sf1449":     bool(d.get("SF1449")),
             "chk_sow_pws":    bool(d.get("SOW/PWS")),
@@ -705,6 +710,153 @@ def automation_audit():
         return jsonify(read_recent(int(request.args.get("limit", 100))))
     except Exception as e:
         return jsonify({"error": str(e), "events": []})
+
+
+# Financial Hub service layer — the ONLY path Bid Tracker uses to create projects.
+# Bid Tracker never writes accounting/project/payroll tables directly (Section 7).
+HUB_URL = "http://localhost:8000"
+_PROMO_COLS = ["Financial Hub Project ID", "Job Number", "Promotion Date", "Promotion Status"]
+
+
+@app.route("/api/bids/promote", methods=["POST"])
+def promote_bid_to_hub():
+    """Promote an AWARDED capture bid to a Financial Hub project via the Hub
+    service layer, then write the returned IDs back to the workbook. Gates on
+    Awarded status server-side and never overwrites an existing promotion."""
+    import datetime as _dt
+    import requests as _rq
+    body = request.get_json(force=True) or {}
+    bid_id = str(body.get("id", "")).strip()
+    title  = str(body.get("title", "")).strip()
+    if not EXCEL_FILE.exists():
+        return jsonify({"error": "Excel file not found"}), 500
+
+    # ── 1. Read row, gate on Awarded, dedup, gather payload ───────────────────
+    with workbook_lock(EXCEL_FILE):
+        wb = openpyxl.load_workbook(EXCEL_FILE, data_only=False)
+        ws = wb["Bid Tracker"]
+
+        def headers():
+            return [str(c.value).strip() if c.value is not None else "" for c in ws[1]]
+
+        def col_idx(name):
+            for i, h in enumerate(headers()):
+                if h.replace('\xa0', '').strip().lower() == name.lower():
+                    return i + 1
+            return None
+
+        # Ensure promotion columns exist (lazy, additive).
+        for h in _PROMO_COLS:
+            if col_idx(h) is None:
+                ws.cell(row=1, column=ws.max_column + 1, value=h)
+
+        id_col, title_col = col_idx("Solicitation / Notice ID"), col_idx("Bid / Opportunity Name")
+        target_row = None
+        if bid_id and not bid_id.startswith("bt-") and id_col:
+            for row in ws.iter_rows(min_row=2):
+                if str(row[id_col - 1].value or "").strip() == bid_id:
+                    target_row = row[0].row; break
+        if target_row is None and title_col and title:
+            for row in ws.iter_rows(min_row=2):
+                if str(row[title_col - 1].value or "").strip().lower() == title.lower():
+                    target_row = row[0].row; break
+        if target_row is None:
+            return jsonify({"error": "bid not found"}), 404
+
+        def cell(name):
+            c = col_idx(name)
+            return str(ws.cell(target_row, c).value or "").strip() if c else ""
+
+        status = cell("Status")
+        if status != "Awarded":
+            return jsonify({"error": f"Only Awarded bids can be promoted (current: '{status or 'none'}')"}), 409
+
+        # Never re-promote (Section 4 — never overwrite).
+        if cell("Financial Hub Project ID"):
+            return jsonify({"success": True, "already": True,
+                            "project_id": cell("Financial Hub Project ID"),
+                            "job_number": cell("Job Number")}), 200
+
+        def _num(s):
+            try: return float(str(s).replace(",", "").replace("$", "")) or 0.0
+            except (TypeError, ValueError): return 0.0
+
+        payload = {
+            "bid_id":        bid_id or (cell("Solicitation / Notice ID") or title),
+            "title":         title or cell("Bid / Opportunity Name"),
+            "agency":        cell("Agency / Department"),
+            "location":      ", ".join(x for x in (cell("City"), cell("State")) if x),
+            "naics":         cell("NAICS"),
+            "award_amount":  _num(cell("Award Amount")) or _num(cell("Bid Amount")),
+            "award_date":    _dt.date.today().isoformat(),
+            "performed_by":  "bid-tracker-ui",
+        }
+
+    # ── 2. Call the Financial Hub service layer (lock released) ───────────────
+    try:
+        resp = _rq.post(f"{HUB_URL}/api/projects/promote-capture-bid", json=payload, timeout=30)
+    except Exception as e:
+        return jsonify({"error": f"Financial Hub unreachable: {e}"}), 502
+
+    if resp.status_code not in (200, 409):
+        return jsonify({"error": "Hub promotion failed", "detail": resp.text[:400]}), 502
+    data = resp.json() if resp.content else {}
+    # 409 = already promoted in Hub → recover the IDs and write them back.
+    project_id = str(data.get("project_id") or data.get("financial_hub_id") or "")
+    job_number = str(data.get("job_number") or "")
+    if not project_id or not job_number:
+        return jsonify({"error": "Hub returned no IDs", "detail": data}), 502
+
+    # ── 3. Write IDs back to the workbook (never overwrite existing) ──────────
+    promoted_at = _dt.datetime.now().strftime("%Y-%m-%d %H:%M")
+    with workbook_lock(EXCEL_FILE):
+        wb = openpyxl.load_workbook(EXCEL_FILE, data_only=False)
+        ws = wb["Bid Tracker"]
+        raw = [str(c.value).strip() if c.value is not None else "" for c in ws[1]]
+
+        def ci(name):
+            for i, h in enumerate(raw):
+                if h.replace('\xa0', '').strip().lower() == name.lower():
+                    return i + 1
+            return None
+
+        # Ensure promotion columns exist (persisted by atomic_save below).
+        for h in _PROMO_COLS:
+            if ci(h) is None:
+                ws.cell(row=1, column=ws.max_column + 1, value=h)
+                raw.append(h)   # keep raw in sync so ci() resolves the new column
+
+        id_col, title_col = ci("Solicitation / Notice ID"), ci("Bid / Opportunity Name")
+        trow = None
+        if bid_id and not bid_id.startswith("bt-") and id_col:
+            for row in ws.iter_rows(min_row=2):
+                if str(row[id_col - 1].value or "").strip() == bid_id:
+                    trow = row[0].row; break
+        if trow is None and title_col and title:
+            for row in ws.iter_rows(min_row=2):
+                if str(row[title_col - 1].value or "").strip().lower() == title.lower():
+                    trow = row[0].row; break
+        if trow is not None:
+            writes = {"Financial Hub Project ID": project_id, "Job Number": job_number,
+                      "Promotion Date": promoted_at, "Promotion Status": "Promoted"}
+            for name, val in writes.items():
+                c = ci(name)
+                if c and not str(ws.cell(trow, c).value or "").strip():   # never overwrite
+                    ws.cell(trow, c, value=val)
+        atomic_save(wb, EXCEL_FILE)
+
+    # ── 4. Audit (capture side) ───────────────────────────────────────────────
+    try:
+        from capture_engine import log_automation
+        log_automation(opportunity_id=payload["bid_id"], title=payload["title"],
+                       user="bid-tracker-ui", trigger="Awarded→Project Created",
+                       action="PROJECT_PROMOTED", result="ok",
+                       folder_path=f"FH project {project_id} / {job_number}")
+    except Exception:
+        pass
+
+    return jsonify({"success": True, "project_id": project_id, "job_number": job_number,
+                    "financial_hub_id": project_id})
 
 
 @app.route("/api/health")
