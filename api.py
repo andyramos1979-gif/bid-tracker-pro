@@ -859,6 +859,23 @@ def promote_bid_to_hub():
                     "financial_hub_id": project_id})
 
 
+@app.route("/api/projects/<path:job_number>/summary")
+def project_summary(job_number):
+    """Read-only proxy to the Financial Hub job-cost dashboard for a promoted
+    project. Surfaces procurement (committed cost + PO count) and cost/margin so
+    the Bid Tracker can show project financials — reads only, no DB writes."""
+    import requests as _rq
+    try:
+        r = _rq.get(f"{HUB_URL}/api/projects/db/{job_number}/dashboard", timeout=15)
+    except Exception as e:
+        return jsonify({"error": f"Financial Hub unreachable: {e}"}), 502
+    if r.status_code == 404:
+        return jsonify({"error": "project not found in Financial Hub"}), 404
+    if r.status_code != 200:
+        return jsonify({"error": "Financial Hub error", "detail": r.text[:300]}), 502
+    return jsonify(r.json())
+
+
 @app.route("/api/health")
 def health():
     return jsonify({
