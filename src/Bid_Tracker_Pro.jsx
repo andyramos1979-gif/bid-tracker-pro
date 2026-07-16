@@ -50,12 +50,14 @@ const STAGE_FILTERS = [
   { val: "Manual Review", label: "Manual Review" },
   { val: "Prospect",      label: "Prospects" },
   { val: "Active Bid",    label: "Active Bids" },
+  { val: "Awarded",       label: "Awarded" },
 ];
 const STAGE_CHIP_ON = {
   "Recommended":   "bg-emerald-500/20 text-emerald-400",
   "Manual Review": "bg-amber-500/20 text-amber-400",
   "Prospect":      "bg-blue-500/20 text-blue-400",
   "Active Bid":    "bg-violet-500/20 text-violet-400",
+  "Awarded":       "bg-yellow-500/20 text-yellow-400",
   "All":           "bg-surface-raised text-info",
 };
 const PROJECT_PHASES = ["Planning", "Design", "Procurement", "Execution", "Closeout"];
@@ -2203,11 +2205,22 @@ export default function BidTrackerPro() {
                                       </button>
                                     )}
                                     {bid.workflowStatus === "Active Bid" && (
-                                      <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-500/15 text-violet-400 border border-violet-500/30 text-xs font-bold">
-                                        <CheckCircle2 className="w-3.5 h-3.5" /> Active Bid — folder authorized
+                                      <>
+                                        <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-500/15 text-violet-400 border border-violet-500/30 text-xs font-bold">
+                                          <CheckCircle2 className="w-3.5 h-3.5" /> Active Bid — folder authorized
+                                        </span>
+                                        <button onClick={() => setStage(bid, "Awarded")}
+                                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-yellow-500/15 text-yellow-400 border border-yellow-500/30 text-xs font-bold hover:bg-yellow-500/25 transition-colors">
+                                          <Trophy className="w-3.5 h-3.5" /> Mark Awarded
+                                        </button>
+                                      </>
+                                    )}
+                                    {bid.workflowStatus === "Awarded" && (
+                                      <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-yellow-500/15 text-yellow-400 border border-yellow-500/30 text-xs font-bold">
+                                        <Trophy className="w-3.5 h-3.5" /> Awarded — ready to promote to Financial Hub (Phase 3B)
                                       </span>
                                     )}
-                                    {bid.workflowStatus && bid.workflowStatus !== "Archived" && (
+                                    {bid.workflowStatus && bid.workflowStatus !== "Archived" && bid.workflowStatus !== "Awarded" && (
                                       <button onClick={() => setStage(bid, "Archived")}
                                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-500/10 text-slate-400 border border-slate-500/20 text-xs font-bold hover:bg-slate-500/20 transition-colors">
                                         Archive
