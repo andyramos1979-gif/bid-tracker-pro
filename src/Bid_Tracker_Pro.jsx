@@ -73,6 +73,35 @@ const RESULT_BADGE = {
   "Closed Cancelled":  "bg-slate-500/15 text-slate-400 border-slate-500/30",
   "Closed Withdrawn":  "bg-orange-500/15 text-orange-400 border-orange-500/30",
 };
+
+// Phase 3H — Submitted-bid aging + follow-up + probability helpers.
+const daysSince = (d) => {
+  if (!d) return null;
+  const t = new Date(d).getTime();
+  if (Number.isNaN(t)) return null;
+  return Math.max(0, Math.floor((Date.now() - t) / 86400000));
+};
+// Aging color bands: 0-15 green · 16-30 yellow · 31-60 orange · 60+ red.
+const agingBadge = (days) => {
+  if (days == null) return null;
+  const cls = days <= 15 ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+            : days <= 30 ? "bg-yellow-500/15 text-yellow-400 border-yellow-500/30"
+            : days <= 60 ? "bg-orange-500/15 text-orange-400 border-orange-500/30"
+            : "bg-red-500/15 text-red-400 border-red-500/30";
+  return { label: `${days}d waiting`, cls };
+};
+const PROBABILITY_OPTS = [25, 50, 75, 90];
+const FOLLOWUP_OPTS = ["Not Started", "Waiting", "Contacted", "Response Received"];
+const FOLLOWUP_CLS = {
+  "Not Started":       "text-text-faint",
+  "Waiting":           "text-amber-400",
+  "Contacted":         "text-blue-400",
+  "Response Received": "text-emerald-400",
+};
+const money = (n) => {
+  const v = Number(n) || 0;
+  return v >= 1000 ? `$${(v / 1000).toFixed(v >= 100000 ? 0 : 1)}K` : `$${v.toLocaleString()}`;
+};
 const PROJECT_PHASES = ["Planning", "Design", "Procurement", "Execution", "Closeout"];
 
 const PRIORITIES = {
@@ -1846,6 +1875,19 @@ export default function BidTrackerPro() {
       .catch(() => { setCostData(cd => { const n = { ...cd }; delete n[bid.id]; return n; }); showToast("Could not load project costs", "warn"); });
   }, [costData, showToast]);
 
+  // Phase 3H — write additive per-bid meta (follow-up / probability / gov response).
+  // Optimistic; never touches Status.
+  const updateMeta = useCallback((bid, fields) => {
+    setBids(bs => bs.map(b => b.id === bid.id ? { ...b, ...fields } : b));
+    fetch("/api/bids/meta", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: bid.id, title: bid.title, fields }),
+    })
+      .then(r => r.json())
+      .then(j => { if (!j.ok) showToast("Update failed", "warn"); })
+      .catch(() => showToast("Update failed — check API server", "warn"));
+  }, [showToast]);
+
   const openAuditLog = useCallback(() => {
     setShowAuditLog(true);
     setAuditEvents(null);
@@ -1945,6 +1987,32 @@ export default function BidTrackerPro() {
       totalValue: sum(B),
     };
   }, [bids, effectiveStatus]);
+
+  // Phase 3H — Submitted command-center metrics.
+  const submittedStats = useMemo(() => {
+    const S = (bids || []).filter(b => b.workflowStatus === "Submitted");
+    const val = (b) => Number(b.bidAmount) || 0;
+    const now = new Date();
+    const mStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const qStart = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
+    let oldest = null, oldestDays = -1;
+    for (const b of S) {
+      const dd = daysSince(b.submittedDate);
+      if (dd != null && dd > oldestDays) { oldestDays = dd; oldest = b; }
+    }
+    const totalDays = S.reduce((s, b) => s + (daysSince(b.submittedDate) || 0), 0);
+    return {
+      count:       S.length,
+      totalValue:  S.reduce((s, b) => s + val(b), 0),
+      avgDays:     S.length ? Math.round(totalDays / S.length) : 0,
+      oldest, oldestDays: oldestDays < 0 ? 0 : oldestDays,
+      weighted:    S.reduce((s, b) => s + val(b) * ((Number(b.awardProbability) || 0) / 100), 0),
+      thisMonth:   S.filter(b => b.submittedDate && new Date(b.submittedDate) >= mStart).length,
+      thisQuarter: S.filter(b => b.submittedDate && new Date(b.submittedDate) >= qStart).length,
+      needFollowUp: S.filter(b => !b.followUpStatus || b.followUpStatus === "Not Started" ||
+                                  (b.nextFollowUp && new Date(b.nextFollowUp) <= now)).length,
+    };
+  }, [bids]);
 
   const projectStats = useMemo(() => ({
     active:         (projects || []).filter(p => p.status === "In Progress").length,
@@ -2145,6 +2213,71 @@ export default function BidTrackerPro() {
               </button>
             </div>
 
+            {/* Phase 3H — Submitted Command Center */}
+            {decisionFilter === "Submitted" && submittedStats.count > 0 && (
+              <div className="mb-4 rounded-2xl border border-blue-500/20 bg-blue-500/[0.04] p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Send className="w-4 h-4 text-blue-400" />
+                  <h3 className="text-sm font-bold text-blue-400">Submitted Command Center</h3>
+                  {submittedStats.needFollowUp > 0 && (
+                    <span className="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 text-[11px] font-bold">{submittedStats.needFollowUp} need follow-up</span>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2.5">
+                  {[
+                    ["Submitted", submittedStats.count],
+                    ["Submitted Value", money(submittedStats.totalValue)],
+                    ["Weighted Pipeline", money(submittedStats.weighted)],
+                    ["Avg Days Waiting", `${submittedStats.avgDays}d`],
+                    ["Oldest", submittedStats.oldest ? `${submittedStats.oldestDays}d` : "—"],
+                    ["This Month", submittedStats.thisMonth],
+                    ["This Quarter", submittedStats.thisQuarter],
+                  ].map(([label, value]) => (
+                    <div key={label} className="rounded-xl bg-[#151926] border border-border/40 px-3 py-2.5">
+                      <div className="text-[9.5px] uppercase tracking-wider text-text-faint font-bold">{label}</div>
+                      <div className="text-lg font-black text-white tabular-nums mt-0.5">{value}</div>
+                    </div>
+                  ))}
+                </div>
+                {submittedStats.oldest && (
+                  <div className="mt-2.5 text-[11.5px] text-text-muted">
+                    Oldest awaiting award: <span className="text-text-secondary font-semibold">{submittedStats.oldest.title}</span>
+                    {" "}· {submittedStats.oldestDays} days · {money(submittedStats.oldest.bidAmount)}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Phase 3H — Bid Outcome Analytics (Awarded/Closed view) */}
+            {(decisionFilter === "Awarded" || decisionFilter === "Closed") && (
+              <div className="mb-4 rounded-2xl border border-border bg-[#151926] p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <BarChart2 className="w-4 h-4 text-emerald-400" />
+                  <h3 className="text-sm font-bold text-text">Bid Outcome Analytics</h3>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5">
+                  {[
+                    ["Submitted", bidStats.submitted, "text-blue-400"],
+                    ["Awarded", bidStats.awarded, "text-yellow-400"],
+                    ["Won", bidStats.won, "text-emerald-400"],
+                    ["Lost", bidStats.lost, "text-red-400"],
+                    ["Win Rate", `${bidStats.winRate}%`, "text-emerald-400"],
+                    ["Award Conv.", `${bidStats.awardConversion}%`, "text-yellow-400"],
+                  ].map(([label, value, cls]) => (
+                    <div key={label} className="rounded-xl bg-surface-raised/40 border border-border/40 px-3 py-2.5">
+                      <div className="text-[9.5px] uppercase tracking-wider text-text-faint font-bold">{label}</div>
+                      <div className={`text-lg font-black tabular-nums mt-0.5 ${cls}`}>{value}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-2.5 flex flex-wrap gap-4 text-[11.5px] text-text-muted">
+                  <span>Awarded value: <span className="text-text-secondary font-semibold">{money(bidStats.awardedValue)}</span></span>
+                  <span>Won value: <span className="text-emerald-400 font-semibold">{money(bidStats.wonValue)}</span></span>
+                  <span>Pipeline: <span className="text-text-secondary font-semibold">{money(bidStats.pipelineValue)}</span></span>
+                </div>
+              </div>
+            )}
+
             {/* Kanban or Table */}
             {view === "kanban" ? (
               <KanbanView bids={filteredBids} onSelect={isMobileView ? () => {} : setSelectedBid} onToggleStar={toggleStar} isMobileView={isMobileView} />
@@ -2223,10 +2356,21 @@ export default function BidTrackerPro() {
                                   </div>
                                 )}
                                 <div className="text-sm font-semibold text-text mb-1.5 group-hover:text-info transition-colors line-clamp-2 pr-4">{bid.title}</div>
-                                <div className="flex items-center gap-2 text-xs">
+                                <div className="flex items-center gap-2 text-xs flex-wrap">
                                   <span className="text-text-muted flex items-center gap-1"><Building className="w-3 h-3" /> {bid.facility}</span>
                                   {bid.city && <><span className="w-1 h-1 rounded-full bg-bg-subtle" /><span className="text-text-faint">{bid.city}</span></>}
                                   {bid.category && <><span className="w-1 h-1 rounded-full bg-bg-subtle" /><span className="text-info/70 font-medium">{bid.category}</span></>}
+                                  {bid.workflowStatus === "Submitted" && (() => {
+                                    const ag = agingBadge(daysSince(bid.submittedDate));
+                                    return (<>
+                                      {ag && <span className={`px-1.5 py-0.5 rounded border text-[10px] font-bold ${ag.cls}`}>{ag.label}</span>}
+                                      {bid.awardProbability > 0 && <span className="px-1.5 py-0.5 rounded border border-blue-500/30 bg-blue-500/10 text-blue-400 text-[10px] font-bold">{bid.awardProbability}% win</span>}
+                                      {bid.followUpStatus && bid.followUpStatus !== "Not Started" && <span className={`text-[10px] font-semibold ${FOLLOWUP_CLS[bid.followUpStatus] || "text-text-faint"}`}>· {bid.followUpStatus}</span>}
+                                    </>);
+                                  })()}
+                                  {String(bid.workflowStatus || "").startsWith("Closed") && (
+                                    <span className={`px-1.5 py-0.5 rounded border text-[10px] font-bold ${RESULT_BADGE[bid.workflowStatus] || ""}`}>{bid.resultStatus || bid.workflowStatus.replace("Closed ", "")}</span>
+                                  )}
                                 </div>
                               </td>
 
@@ -2319,6 +2463,12 @@ export default function BidTrackerPro() {
                                       </span>
                                     )}
                                     {bid.workflowStatus === "Awarded" && (<>
+                                      <div className="w-full flex flex-wrap gap-x-4 gap-y-1 text-[11.5px] text-text-muted mb-1">
+                                        {(bid.awardedAmount || bid.bidAmount) ? <span>Award: <span className="text-yellow-400 font-semibold">{money(bid.awardedAmount || bid.bidAmount)}</span></span> : null}
+                                        {bid.promotionDate && <span>Award date: <span className="text-text-secondary">{bid.promotionDate}</span></span>}
+                                        {bid.jobNumber && <span>Job #: <span className="text-text-secondary font-mono">{bid.jobNumber}</span></span>}
+                                        <span>Promotion: <span className={bid.financialHubProjectId ? "text-emerald-400 font-semibold" : "text-amber-400 font-semibold"}>{bid.financialHubProjectId ? "Promoted" : "Awaiting promotion"}</span></span>
+                                      </div>
                                       {bid.financialHubProjectId ? (
                                         <div className="flex flex-col gap-2 w-full">
                                           <div className="flex flex-wrap items-center gap-2">
@@ -2409,6 +2559,44 @@ export default function BidTrackerPro() {
                                       </button>
                                     )}
                                   </div>
+                                  {bid.workflowStatus === "Submitted" && (() => {
+                                    const ag = agingBadge(daysSince(bid.submittedDate));
+                                    const inp = "flex-1 h-7 rounded border border-border bg-surface px-2 text-[11px] text-text focus:outline-none focus:border-blue-500/50";
+                                    return (
+                                      <div className="mb-5 rounded-xl border border-blue-500/20 bg-blue-500/[0.04] p-3" onClick={e => e.stopPropagation()}>
+                                        <div className="flex flex-wrap items-center gap-2 mb-2.5">
+                                          <h4 className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">Submission Tracking</h4>
+                                          {ag && <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${ag.cls}`}>{ag.label}</span>}
+                                          {bid.submittedDate && <span className="text-[11px] text-text-faint">Submitted {bid.submittedDate}</span>}
+                                        </div>
+                                        <div className="flex flex-wrap items-center gap-2 mb-2.5">
+                                          <span className="text-[11px] text-text-faint w-24">Win Probability</span>
+                                          {PROBABILITY_OPTS.map(pp => (
+                                            <button key={pp} onClick={() => updateMeta(bid, { awardProbability: pp })}
+                                              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-colors ${Number(bid.awardProbability) === pp ? "bg-blue-500/20 text-blue-400 border-blue-500/40" : "border-border text-text-muted hover:text-text"}`}>{pp}%</button>
+                                          ))}
+                                          {bid.awardProbability > 0 && <span className="text-[11px] text-text-faint">Weighted: {money((Number(bid.bidAmount) || 0) * (Number(bid.awardProbability) / 100))}</span>}
+                                        </div>
+                                        <div className="flex flex-wrap items-center gap-2 mb-2.5">
+                                          <span className="text-[11px] text-text-faint w-24">Follow-Up</span>
+                                          {FOLLOWUP_OPTS.map(f => (
+                                            <button key={f} onClick={() => updateMeta(bid, { followUpStatus: f, lastFollowUp: f !== "Not Started" ? new Date().toISOString().slice(0, 10) : "" })}
+                                              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-colors ${bid.followUpStatus === f ? `bg-surface-raised border-border-strong ${FOLLOWUP_CLS[f] || ""}` : "border-border text-text-muted hover:text-text"}`}>{f}</button>
+                                          ))}
+                                        </div>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                          <label className="flex items-center gap-2 text-[11px] text-text-faint">Next follow-up
+                                            <input type="date" defaultValue={bid.nextFollowUp || ""} onBlur={e => e.target.value !== (bid.nextFollowUp || "") && updateMeta(bid, { nextFollowUp: e.target.value })} className={inp} /></label>
+                                          <label className="flex items-center gap-2 text-[11px] text-text-faint">CO Name
+                                            <input defaultValue={bid.coName || ""} onBlur={e => e.target.value !== (bid.coName || "") && updateMeta(bid, { coName: e.target.value })} className={inp} /></label>
+                                          <label className="flex items-center gap-2 text-[11px] text-text-faint">CO Email
+                                            <input defaultValue={bid.coEmail || ""} onBlur={e => e.target.value !== (bid.coEmail || "") && updateMeta(bid, { coEmail: e.target.value })} className={inp} /></label>
+                                          <label className="flex items-center gap-2 text-[11px] text-text-faint">Notes
+                                            <input defaultValue={bid.followUpNotes || ""} onBlur={e => e.target.value !== (bid.followUpNotes || "") && updateMeta(bid, { followUpNotes: e.target.value })} className={inp} /></label>
+                                        </div>
+                                      </div>
+                                    );
+                                  })()}
                                   {bid.decision && (
                                     <div className="mb-5">
                                       <h4 className="text-[10px] font-bold text-text-faint uppercase tracking-wider mb-2">Capture Decision</h4>

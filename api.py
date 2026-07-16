@@ -237,6 +237,17 @@ def get_bids():
             "closedDate":            str(d.get("Closed Date") or ""),
             "closedReason":          str(d.get("Closed Reason") or ""),
             "resultStatus":          str(d.get("Result Status") or ""),
+            # ── Phase 3H command-center meta ──
+            "awardProbability":      _int(d.get("Award Probability")),
+            "followUpStatus":        str(d.get("Follow-Up Status") or ""),
+            "lastFollowUp":          str(d.get("Last Follow-Up Date") or ""),
+            "nextFollowUp":          str(d.get("Next Follow-Up Date") or ""),
+            "followUpNotes":         str(d.get("Follow-Up Notes") or ""),
+            "coName":                str(d.get("CO Name") or ""),
+            "coEmail":               str(d.get("CO Email") or ""),
+            "awardDecisionDate":     str(d.get("Award Decision Date") or ""),
+            "debriefRequested":      str(d.get("Debrief Requested") or ""),
+            "debriefReceived":       str(d.get("Debrief Received") or ""),
             "notes":         [],
             "chk_sf1449":     bool(d.get("SF1449")),
             "chk_sow_pws":    bool(d.get("SOW/PWS")),
@@ -773,6 +784,81 @@ def set_bid_status():
     return jsonify({"ok": True, "status": stage, "oldStatus": old_status,
                     "folderCreated": folder_created, "folderPath": folder_path,
                     "error": err or None})
+
+
+# Phase 3H — per-bid metadata (follow-up, award probability, government response).
+# Additive: written by /api/bids/meta ONLY; never touches Status / the transition
+# engine. Normalized key → Excel column.
+_META_MAP = {
+    "awardProbability":   "Award Probability",
+    "followUpStatus":     "Follow-Up Status",
+    "lastFollowUp":       "Last Follow-Up Date",
+    "nextFollowUp":       "Next Follow-Up Date",
+    "followUpNotes":      "Follow-Up Notes",
+    "coName":             "CO Name",
+    "coEmail":            "CO Email",
+    "awardDecisionDate":  "Award Decision Date",
+    "debriefRequested":   "Debrief Requested",
+    "debriefReceived":    "Debrief Received",
+}
+
+
+@app.route("/api/bids/meta", methods=["POST"])
+def update_bid_meta():
+    """Write additive per-bid metadata (follow-up / award probability / government
+    response). Does NOT modify Status or the transition engine — only the meta
+    columns in _META_MAP. Body: {id, title, fields: {normalizedKey: value, ...}}."""
+    body = request.get_json(force=True) or {}
+    bid_id = str(body.get("id", "")).strip()
+    title  = str(body.get("title", "")).strip()
+    fields = body.get("fields") or {}
+    if not isinstance(fields, dict) or not fields:
+        return jsonify({"error": "no fields provided"}), 400
+    if not EXCEL_FILE.exists():
+        return jsonify({"error": "Excel file not found"}), 500
+
+    with workbook_lock(EXCEL_FILE):
+        wb = openpyxl.load_workbook(EXCEL_FILE, data_only=False)
+        ws = wb["Bid Tracker"]
+        raw = [str(c.value).strip() if c.value is not None else "" for c in ws[1]]
+
+        def ci(name):
+            for i, h in enumerate(raw):
+                if h.replace('\xa0', '').strip().lower() == name.lower():
+                    return i + 1
+            return None
+
+        # Ensure only the meta columns being written exist.
+        to_write = {}
+        for key, value in fields.items():
+            col_name = _META_MAP.get(key)
+            if not col_name:
+                continue
+            if ci(col_name) is None:
+                ws.cell(row=1, column=ws.max_column + 1, value=col_name)
+                raw.append(col_name)
+            to_write[col_name] = value
+
+        id_col, title_col = ci("Solicitation / Notice ID"), ci("Bid / Opportunity Name")
+        target_row = None
+        if bid_id and not bid_id.startswith("bt-") and id_col:
+            for row in ws.iter_rows(min_row=2):
+                if str(row[id_col - 1].value or "").strip() == bid_id:
+                    target_row = row[0].row; break
+        if target_row is None and title_col and title:
+            for row in ws.iter_rows(min_row=2):
+                if str(row[title_col - 1].value or "").strip().lower() == title.lower():
+                    target_row = row[0].row; break
+        if target_row is None:
+            return jsonify({"error": "bid not found"}), 404
+
+        for col_name, value in to_write.items():
+            c = ci(col_name)
+            if c:
+                ws.cell(target_row, c, value=("" if value is None else value))
+        atomic_save(wb, EXCEL_FILE)
+
+    return jsonify({"ok": True, "updated": list(to_write.keys())})
 
 
 @app.route("/api/automation-audit")
