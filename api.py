@@ -158,7 +158,9 @@ def get_bids():
                       # Capture-engine decisions are active leads:
                       "Recommended": "Open", "Manual Review": "Open",
                       "Prospect": "Open", "Active Bid": "Open",
-                      "Awarded": "Awarded"}
+                      "Submitted": "Open", "Awarded": "Awarded",
+                      "Closed Won": "Closed", "Closed Lost": "Closed",
+                      "Closed Cancelled": "Closed", "Closed Withdrawn": "Closed"}
         status = status_map.get(status_raw, "Open")
 
         # Capture Intelligence decision fields (blank on legacy rows).
@@ -228,6 +230,13 @@ def get_bids():
             "jobNumber":             str(d.get("Job Number") or ""),
             "promotionStatus":       str(d.get("Promotion Status") or ""),
             "promotionDate":         str(d.get("Promotion Date") or ""),
+            # ── Phase 3G lifecycle fields ──
+            "submittedDate":         str(d.get("Submitted Date") or ""),
+            "submittedBy":           str(d.get("Submitted By") or ""),
+            "submissionStatus":      str(d.get("Submission Status") or ""),
+            "closedDate":            str(d.get("Closed Date") or ""),
+            "closedReason":          str(d.get("Closed Reason") or ""),
+            "resultStatus":          str(d.get("Result Status") or ""),
             "notes":         [],
             "chk_sf1449":     bool(d.get("SF1449")),
             "chk_sow_pws":    bool(d.get("SOW/PWS")),
@@ -604,13 +613,36 @@ def save_bid():
     return jsonify({"ok": True})
 
 
-# Workflow stages a user can move an opportunity through. "Active Bid" is a
-# PURSUE status — the ONLY stage that authorizes folder-creating automation
-# (the watcher, gated on PURSUE_STATUSES, creates the folder on its next poll).
-_WORKFLOW_STAGES = {"Recommended", "Manual Review", "Prospect", "Active Bid", "Awarded", "Archived"}
-# Phase 3A: "Awarded" is reachable ONLY from "Active Bid" (a won contract). It is
-# the precondition for promotion to a Financial Hub project.
-_AWARDED_FROM = {"Active Bid"}
+# Federal contracting lifecycle (Phase 3G). "Active Bid" is a PURSUE status — the
+# only stage that authorizes folder-creating automation (the watcher creates the
+# folder on its next poll).
+_CLOSED_STATES = {"Closed Won", "Closed Lost", "Closed Cancelled", "Closed Withdrawn"}
+_WORKFLOW_STAGES = ({"Recommended", "Manual Review", "Prospect", "Active Bid",
+                     "Submitted", "Awarded", "Archived"} | _CLOSED_STATES)
+
+# Server-enforced valid transitions (Phase 3G-A). Anything not listed → 409.
+# Unknown/legacy source statuses are permissive (migration safety — existing
+# Active Bid / Awarded / legacy rows are never blocked).
+_TRANSITIONS = {
+    "Recommended":      {"Prospect", "Archived"},
+    "Manual Review":    {"Prospect", "Recommended", "Archived"},
+    "Prospect":         {"Active Bid", "Recommended", "Archived"},
+    "Active Bid":       {"Submitted", "Archived"},
+    "Submitted":        {"Awarded", "Closed Lost", "Closed Cancelled", "Closed Withdrawn", "Archived"},
+    "Awarded":          {"Closed Won", "Archived"},
+    "Archived":         {"Recommended"},
+    # Closed → reopen to Submitted (admin/API path only; audited BID_REOPENED).
+    "Closed Won":       {"Submitted"},
+    "Closed Lost":      {"Submitted"},
+    "Closed Cancelled": {"Submitted"},
+    "Closed Withdrawn": {"Submitted"},
+}
+
+# Lifecycle columns written on the relevant transitions (Phase 3G-H).
+_LIFECYCLE_COLS = ["Submitted Date", "Submitted By", "Submission Status", "Submission Method",
+                   "Closed Date", "Closed Reason", "Result Status"]
+_RESULT_OF = {"Closed Won": "Won", "Closed Lost": "Lost",
+              "Closed Cancelled": "Cancelled", "Closed Withdrawn": "Withdrawn"}
 
 
 @app.route("/api/bids/status", methods=["POST"])
@@ -639,6 +671,12 @@ def set_bid_status():
                     return i + 1
             return None
 
+        # Ensure lifecycle columns exist so we can persist submitted/closed fields.
+        for h in _LIFECYCLE_COLS:
+            if col_idx(h) is None:
+                ws.cell(row=1, column=ws.max_column + 1, value=h)
+                raw_headers.append(h)
+
         id_col, title_col = col_idx("Solicitation / Notice ID"), col_idx("Bid / Opportunity Name")
         status_col, updated_col = col_idx("Status"), col_idx("Last Updated")
         is_auto_id = bid_id.startswith("bt-")
@@ -658,15 +696,40 @@ def set_bid_status():
             return jsonify({"error": "bid not found"}), 404
 
         old_status = str(ws.cell(row=target_row, column=status_col).value or "").strip() if status_col else ""
-        # Gate: Awarded may only be reached from Active Bid (Section 1 rule —
-        # Prospect / Recommended cannot jump straight to Awarded).
-        if stage == "Awarded" and old_status not in _AWARDED_FROM:
-            return jsonify({"error": f"Awarded requires Active Bid (current: '{old_status or 'none'}')"}), 409
+        # Server-enforced transition validation (Phase 3G-A). Known source states
+        # must follow the lifecycle; unknown/legacy sources are permissive.
+        if old_status in _TRANSITIONS and stage != old_status and stage not in _TRANSITIONS[old_status]:
+            return jsonify({"error": f"invalid transition '{old_status}' → '{stage}'",
+                            "allowed": sorted(_TRANSITIONS[old_status])}), 409
 
+        now_dt = _dt.datetime.now().strftime("%Y-%m-%d %H:%M")
+        today  = _dt.date.today().isoformat()
         if status_col:
             ws.cell(row=target_row, column=status_col, value=stage)
         if updated_col:
-            ws.cell(row=target_row, column=updated_col, value=_dt.datetime.now().strftime("%Y-%m-%d %H:%M"))
+            ws.cell(row=target_row, column=updated_col, value=now_dt)
+
+        def _set(col_name, value, overwrite=True):
+            c = col_idx(col_name)
+            if c and (overwrite or not str(ws.cell(target_row, c).value or "").strip()):
+                ws.cell(target_row, c, value=value)
+
+        # Lifecycle field writes (Phase 3G-E / 3G-H).
+        if stage == "Submitted" and old_status == "Active Bid":
+            _set("Submitted Date", today, overwrite=False)   # keep original submit date
+            _set("Submitted By", str(body.get("submitted_by") or "bid-tracker-ui"), overwrite=False)
+            _set("Submission Status", "Submitted")
+            if body.get("submission_method"):
+                _set("Submission Method", str(body.get("submission_method")))
+        elif stage in _CLOSED_STATES:
+            _set("Closed Date", today)
+            _set("Result Status", _RESULT_OF[stage])
+            _set("Closed Reason", str(body.get("closed_reason") or _RESULT_OF[stage]))
+        elif stage == "Submitted" and old_status in _CLOSED_STATES:
+            _set("Closed Date", "")            # reopened — clear closed fields
+            _set("Result Status", "")
+            _set("Closed Reason", "")
+
         atomic_save(wb, EXCEL_FILE)
 
     # "Bid On This" (→ Active Bid) is the sanctioned, user-initiated folder
@@ -687,11 +750,21 @@ def set_bid_status():
 
     # Forensic audit trail for the transition (create_estimate_folders logs the
     # folder-creation event itself; this records the user's stage change).
+    # Audit action by transition (Phase 3G-I).
+    if stage == "Submitted" and old_status in _CLOSED_STATES:
+        _action = "BID_REOPENED"
+    elif stage == "Submitted":
+        _action = "BID_SUBMITTED"
+    elif stage in _CLOSED_STATES:
+        _action = "BID_CLOSED"
+    elif stage == "Awarded":
+        _action = "PROMOTION_STATUS_CHANGED"
+    else:
+        _action = "set_workflow_status"
     try:
         from capture_engine import log_automation
         log_automation(opportunity_id=bid_id, title=title, user="bid-tracker-ui",
-                       trigger=f"{old_status or 'none'}→{stage}",
-                       action=("PROMOTION_STATUS_CHANGED" if stage == "Awarded" else "set_workflow_status"),
+                       trigger=f"{old_status or 'none'}→{stage}", action=_action,
                        result=("error" if err else "ok"),
                        folder_created=folder_created, folder_path=folder_path,
                        error_message=err)
