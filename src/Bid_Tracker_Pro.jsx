@@ -11,7 +11,7 @@ import {
   ShieldCheck, Trash2, ClipboardCheck, ArrowRight, Save,
   Briefcase, FolderKanban, AlertTriangle, TrendingUp, CheckSquare, Wallet,
   AlertCircle, Play, Pause, Activity, Globe, Sun, Moon,
-  Layers, Trophy, ExternalLink
+  Layers, Trophy, ExternalLink, Send
 } from "lucide-react";
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
@@ -44,21 +44,34 @@ const DECISION_BADGE = {
 };
 // Workflow-stage filter chips (stages as filters, not separate storage buckets).
 // Filters on the mutable workflowStatus (Recommended → Prospect → Active Bid).
+// Federal contracting lifecycle nav (Phase 3G-B). Submitted is primary; Prospect
+// is moved after the main stages (still filterable, just not a primary KPI).
 const STAGE_FILTERS = [
-  { val: "All",           label: "All" },
-  { val: "Recommended",   label: "Recommended" },
-  { val: "Manual Review", label: "Manual Review" },
-  { val: "Prospect",      label: "Prospects" },
-  { val: "Active Bid",    label: "Active Bids" },
-  { val: "Awarded",       label: "Awarded" },
+  { val: "All",        label: "All" },
+  { val: "Recommended", label: "Recommended" },
+  { val: "Active Bid", label: "Active" },
+  { val: "Submitted",  label: "Submitted" },
+  { val: "Awarded",    label: "Awarded" },
+  { val: "Closed",     label: "Closed" },       // matches any Closed * state
+  { val: "Prospect",   label: "Prospect" },
 ];
 const STAGE_CHIP_ON = {
   "Recommended":   "bg-emerald-500/20 text-emerald-400",
-  "Manual Review": "bg-amber-500/20 text-amber-400",
-  "Prospect":      "bg-blue-500/20 text-blue-400",
+  "Prospect":      "bg-slate-500/20 text-slate-300",
   "Active Bid":    "bg-violet-500/20 text-violet-400",
+  "Submitted":     "bg-blue-500/20 text-blue-400",
   "Awarded":       "bg-yellow-500/20 text-yellow-400",
+  "Closed":        "bg-emerald-600/20 text-emerald-300",
   "All":           "bg-surface-raised text-info",
+};
+// Result/status badge colors (Phase 3G-K).
+const RESULT_BADGE = {
+  "Submitted":         "bg-blue-500/15 text-blue-400 border-blue-500/30",
+  "Awarded":           "bg-yellow-500/15 text-yellow-400 border-yellow-500/30",
+  "Closed Won":        "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+  "Closed Lost":       "bg-red-500/15 text-red-400 border-red-500/30",
+  "Closed Cancelled":  "bg-slate-500/15 text-slate-400 border-slate-500/30",
+  "Closed Withdrawn":  "bg-orange-500/15 text-orange-400 border-orange-500/30",
 };
 const PROJECT_PHASES = ["Planning", "Design", "Procurement", "Execution", "Closeout"];
 
@@ -970,6 +983,7 @@ function CyberStatsPanel({ stats }) {
                 {card.value}
                 {card.showPct && <span className="text-xl opacity-60 ml-1">%</span>}
               </h3>
+              {card.sub && <span className="text-sm font-bold text-white/50 mb-1.5">{card.sub}</span>}
             </div>
 
             <div className="mt-2">
@@ -1086,18 +1100,21 @@ function CsIconMedallion({ c }) {
 }
 
 function CyberBidsPanel({ stats, onFilter }) {
-  const pipelineK = `$${(stats.totalValue / 1000).toFixed(0)}K`;
+  const pipelineK  = `$${(stats.pipelineValue / 1000).toFixed(0)}K`;
+  const submittedK = `$${(stats.submittedValue / 1000).toFixed(0)}K`;
 
+  // Phase 3G-D — lifecycle KPIs: ACTIVE · SUBMITTED · AWARDED · DUE SOON · PIPELINE · WIN RATE.
   const cards = [
-    { label: "TOTAL TRACKED",  value: stats.total,   icon: <Layers size={18} />,        color: "blue",   gradient: "from-blue-600 to-indigo-600",  shadow: "shadow-info/20",   showRing: true,  showPct: true,  filterVal: "All"      },
-    { label: "ACTIVE OPEN",    value: stats.open,    icon: <CheckCircle2 size={18} />,   color: "emerald",gradient: "from-emerald-600 to-info", shadow: "shadow-success/20",showRing: true,  showPct: false, filterVal: "Open"     },
-    { label: "URGENT (<3D)",   value: stats.urgent,  icon: <AlertTriangle size={18} />,  color: "orange", gradient: "from-orange-600 to-warning",  shadow: "shadow-warning/20", showRing: false, showPct: false, filterVal: "Open"     },
-    { label: "WON / AWARDED",  value: stats.awarded, icon: <Trophy size={18} />,         color: "amber",  gradient: "from-amber-500 to-yellow-600",  shadow: "shadow-warning/20",  showRing: false, showPct: false, filterVal: "Won"      },
-    { label: "PIPELINE VALUE", value: pipelineK,     icon: <TrendingUp size={18} />,     color: "purple", gradient: "from-purple-600 to-violet-600", shadow: "shadow-special/20", showRing: false, showPct: false, filterVal: "HasAmount" },
+    { label: "ACTIVE",     value: stats.active,    icon: <Target size={18} />,        color: "violet",  gradient: "from-violet-600 to-indigo-600", shadow: "shadow-info/20",    showRing: true,  showPct: false, filterVal: "Active Bid" },
+    { label: "SUBMITTED",  value: stats.submitted, sub: submittedK, icon: <Send size={18} />, color: "blue", gradient: "from-blue-600 to-info", shadow: "shadow-info/20",  showRing: false, showPct: false, filterVal: "Submitted"  },
+    { label: "AWARDED",    value: stats.awarded,   icon: <Trophy size={18} />,        color: "amber",   gradient: "from-amber-500 to-yellow-600",  shadow: "shadow-warning/20", showRing: false, showPct: false, filterVal: "Awarded"    },
+    { label: "DUE SOON",   value: stats.urgent,    icon: <AlertTriangle size={18} />, color: "orange",  gradient: "from-orange-600 to-warning",    shadow: "shadow-warning/20", showRing: false, showPct: false, filterVal: "All"        },
+    { label: "PIPELINE $", value: pipelineK,       icon: <TrendingUp size={18} />,    color: "purple",  gradient: "from-purple-600 to-violet-600", shadow: "shadow-special/20", showRing: false, showPct: false, filterVal: "All"        },
+    { label: "WIN RATE",   value: stats.winRate,   sub: `${stats.won}W / ${stats.lost}L`, showPct: true, icon: <BarChart2 size={18} />, color: "emerald", gradient: "from-emerald-600 to-info", shadow: "shadow-success/20", showRing: false, filterVal: "Closed" },
   ];
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
       {cards.map((card, idx) => (
         <div
           key={idx}
@@ -1131,6 +1148,7 @@ function CyberBidsPanel({ stats, onFilter }) {
                 {card.value}
                 {card.showPct && <span className="text-xl opacity-60 ml-1">%</span>}
               </h3>
+              {card.sub && <span className="text-sm font-bold text-white/50 mb-1.5">{card.sub}</span>}
             </div>
 
             <div className="mt-2">
@@ -1881,7 +1899,8 @@ export default function BidTrackerPro() {
         return (
           (filter === "All" || (filter === "Won" ? b.wonLoss === "Yes" : filter === "HasAmount" ? Number(b.bidAmount) > 0 : st === filter)) &&
           (catFilter === "All" || b.category === catFilter) &&
-          (decisionFilter === "All" || b.workflowStatus === decisionFilter) &&
+          (decisionFilter === "All" ||
+            (decisionFilter === "Closed" ? String(b.workflowStatus || "").startsWith("Closed") : b.workflowStatus === decisionFilter)) &&
           (!showStarred || b.starred) &&
           (!search || [b.title, b.city, b.state, b.facility, b.contractor].some(f => f && String(f).toLowerCase().includes(search.toLowerCase())))
         );
@@ -1896,13 +1915,36 @@ export default function BidTrackerPro() {
       });
   }, [bids, filter, catFilter, decisionFilter, showStarred, search, sortKey, sortDir, effectiveStatus]);
 
-  const bidStats = useMemo(() => ({
-    total:      (bids || []).length,
-    open:       (bids || []).filter(b => effectiveStatus(b) === "Open").length,
-    awarded:    (bids || []).filter(b => b.wonLoss === "Yes").length,
-    urgent:     (bids || []).filter(b => effectiveStatus(b) === "Open" && b.dueDate && (new Date(b.dueDate) - new Date() > 0) && (new Date(b.dueDate) - new Date() < 3 * 86400000)).length,
-    totalValue: (bids || []).reduce((s, b) => s + (Number(b.bidAmount) || 0), 0),
-  }), [bids, effectiveStatus]);
+  const bidStats = useMemo(() => {
+    const B = bids || [];
+    const ws  = (b) => b.workflowStatus || "";
+    const val = (b) => Number(b.bidAmount) || 0;
+    const sum = (arr) => arr.reduce((s, b) => s + val(b), 0);
+    const active    = B.filter(b => ws(b) === "Active Bid");
+    const submitted = B.filter(b => ws(b) === "Submitted");
+    const awarded   = B.filter(b => ws(b) === "Awarded");
+    const won       = B.filter(b => ws(b) === "Closed Won");
+    const lost      = B.filter(b => ws(b) === "Closed Lost");
+    const closed    = B.filter(b => ws(b).startsWith("Closed"));
+    const winRate   = (won.length + lost.length) ? Math.round(won.length / (won.length + lost.length) * 100) : 0;
+    // Award conversion = ever-awarded (Awarded + Closed Won) ÷ Submitted-or-beyond
+    const everAwarded = awarded.length + won.length;
+    const submittedOrBeyond = submitted.length + everAwarded + lost.length;
+    return {
+      total:      B.length,
+      open:       B.filter(b => effectiveStatus(b) === "Open").length,
+      active:     active.length,
+      submitted:  submitted.length, submittedValue: sum(submitted),
+      awarded:    everAwarded, awardedValue: sum([...awarded, ...won]),
+      won:        won.length, wonValue: sum(won),
+      lost:       lost.length, closed: closed.length,
+      winRate,
+      awardConversion: submittedOrBeyond ? Math.round(everAwarded / submittedOrBeyond * 100) : 0,
+      urgent:     B.filter(b => effectiveStatus(b) === "Open" && b.dueDate && (new Date(b.dueDate) - new Date() > 0) && (new Date(b.dueDate) - new Date() < 3 * 86400000)).length,
+      pipelineValue: sum([...active, ...submitted]),
+      totalValue: sum(B),
+    };
+  }, [bids, effectiveStatus]);
 
   const projectStats = useMemo(() => ({
     active:         (projects || []).filter(p => p.status === "In Progress").length,
@@ -2024,7 +2066,7 @@ export default function BidTrackerPro() {
           <div className="animate-in fade-in duration-300 flex flex-col gap-6">
 
             {/* Stats row */}
-            <CyberBidsPanel stats={bidStats} onFilter={setFilter} />
+            <CyberBidsPanel stats={bidStats} onFilter={(v) => { setDecisionFilter(v); setFilter("All"); }} />
 
             {/* Toolbar */}
             <div className="bg-surface/60 border border-border rounded-2xl p-2 md:p-3 flex flex-wrap items-center gap-3">
@@ -2073,7 +2115,9 @@ export default function BidTrackerPro() {
               <div className="flex items-center gap-1 bg-bg-app border border-border rounded-xl p-1 overflow-x-auto">
                 {STAGE_FILTERS.map(({ val, label }) => {
                   const active = decisionFilter === val;
-                  const count = (bids || []).filter(b => b.workflowStatus === val).length;
+                  const count = (bids || []).filter(b => val === "Closed"
+                    ? String(b.workflowStatus || "").startsWith("Closed")
+                    : b.workflowStatus === val).length;
                   return (
                     <button key={val} onClick={() => setDecisionFilter(val)}
                       className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${active ? STAGE_CHIP_ON[val] : "text-text-faint hover:text-text-secondary"}`}>
@@ -2244,14 +2288,38 @@ export default function BidTrackerPro() {
                                         <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-500/15 text-violet-400 border border-violet-500/30 text-xs font-bold">
                                           <CheckCircle2 className="w-3.5 h-3.5" /> Active Bid — folder authorized
                                         </span>
+                                        <button onClick={() => setStage(bid, "Submitted")}
+                                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/15 text-blue-400 border border-blue-500/30 text-xs font-bold hover:bg-blue-500/25 transition-colors">
+                                          <Send className="w-3.5 h-3.5" /> Submit Bid
+                                        </button>
+                                      </>
+                                    )}
+                                    {bid.workflowStatus === "Submitted" && (
+                                      <>
+                                        <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/15 text-blue-400 border border-blue-500/30 text-xs font-bold">
+                                          <Send className="w-3.5 h-3.5" /> Submitted{bid.submittedDate ? ` ${bid.submittedDate}` : ""} — awaiting decision
+                                        </span>
                                         <button onClick={() => setStage(bid, "Awarded")}
                                           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-yellow-500/15 text-yellow-400 border border-yellow-500/30 text-xs font-bold hover:bg-yellow-500/25 transition-colors">
                                           <Trophy className="w-3.5 h-3.5" /> Mark Awarded
                                         </button>
+                                        <button onClick={() => setStage(bid, "Closed Lost")}
+                                          className="px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 border border-red-500/25 text-xs font-bold hover:bg-red-500/20 transition-colors">Close Lost</button>
+                                        <button onClick={() => setStage(bid, "Closed Cancelled")}
+                                          className="px-3 py-1.5 rounded-lg bg-slate-500/10 text-slate-300 border border-slate-500/25 text-xs font-bold hover:bg-slate-500/20 transition-colors">Close Cancelled</button>
+                                        <button onClick={() => setStage(bid, "Closed Withdrawn")}
+                                          className="px-3 py-1.5 rounded-lg bg-orange-500/10 text-orange-400 border border-orange-500/25 text-xs font-bold hover:bg-orange-500/20 transition-colors">Withdraw</button>
                                       </>
                                     )}
-                                    {bid.workflowStatus === "Awarded" && (
-                                      bid.financialHubProjectId ? (
+                                    {String(bid.workflowStatus || "").startsWith("Closed") && (
+                                      <span className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold ${RESULT_BADGE[bid.workflowStatus] || RESULT_BADGE["Closed Cancelled"]}`}>
+                                        <CheckCircle2 className="w-3.5 h-3.5" /> {bid.resultStatus || bid.workflowStatus.replace("Closed ", "")}
+                                        {bid.closedDate ? ` · ${bid.closedDate}` : ""}
+                                        <span className="text-text-faint font-normal">(read-only)</span>
+                                      </span>
+                                    )}
+                                    {bid.workflowStatus === "Awarded" && (<>
+                                      {bid.financialHubProjectId ? (
                                         <div className="flex flex-col gap-2 w-full">
                                           <div className="flex flex-wrap items-center gap-2">
                                             <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-xs font-bold">
@@ -2322,9 +2390,13 @@ export default function BidTrackerPro() {
                                           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-yellow-500/15 text-yellow-400 border border-yellow-500/30 text-xs font-bold hover:bg-yellow-500/25 transition-colors">
                                           <Trophy className="w-3.5 h-3.5" /> Promote to Financial Hub Project
                                         </button>
-                                      )
-                                    )}
-                                    {bid.workflowStatus && bid.workflowStatus !== "Archived" && bid.workflowStatus !== "Awarded" && (
+                                      )}
+                                      <button onClick={() => setStage(bid, "Closed Won")}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-xs font-bold hover:bg-emerald-500/25 transition-colors">
+                                        <CheckCircle2 className="w-3.5 h-3.5" /> Close Won
+                                      </button>
+                                    </>)}
+                                    {bid.workflowStatus && !["Archived", "Awarded"].includes(bid.workflowStatus) && !String(bid.workflowStatus).startsWith("Closed") && (
                                       <button onClick={() => setStage(bid, "Archived")}
                                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-500/10 text-slate-400 border border-slate-500/20 text-xs font-bold hover:bg-slate-500/20 transition-colors">
                                         Archive
