@@ -192,6 +192,7 @@ def get_bids():
         bids.append({
             "id":            str(d.get("Solicitation / Notice ID") or f"bt-{i}"),
             "status":        status,
+            "workflowStatus": status_raw,   # raw pipeline stage (Recommended/Manual Review/Prospect/Active Bid/...)
             "dueDate":       due,
             "title":         str(d.get("Bid / Opportunity Name") or ""),
             "state":         str(d.get("State") or ""),
@@ -595,6 +596,83 @@ def save_bid():
         atomic_save(wb, EXCEL_FILE)
 
     return jsonify({"ok": True})
+
+
+# Workflow stages a user can move an opportunity through. "Active Bid" is a
+# PURSUE status — the ONLY stage that authorizes folder-creating automation
+# (the watcher, gated on PURSUE_STATUSES, creates the folder on its next poll).
+_WORKFLOW_STAGES = {"Recommended", "Manual Review", "Prospect", "Active Bid", "Archived"}
+
+
+@app.route("/api/bids/status", methods=["POST"])
+def set_bid_status():
+    """Move a bid to a new workflow stage. Writes ONLY the Status column (never
+    clobbers other fields) and logs an automation_audit event. No folder is
+    created here — that stays gated to the watcher on a PURSUE status."""
+    import datetime as _dt
+    body = request.get_json(force=True) or {}
+    bid_id = str(body.get("id", "")).strip()
+    title  = str(body.get("title", "")).strip()
+    stage  = str(body.get("status", "")).strip()
+    if stage not in _WORKFLOW_STAGES:
+        return jsonify({"error": f"invalid stage '{stage}'"}), 400
+    if not EXCEL_FILE.exists():
+        return jsonify({"error": "Excel file not found"}), 500
+
+    with workbook_lock(EXCEL_FILE):
+        wb = openpyxl.load_workbook(EXCEL_FILE, data_only=False)
+        ws = wb["Bid Tracker"]
+        raw_headers = [str(c.value).strip() if c.value is not None else "" for c in ws[1]]
+
+        def col_idx(name):
+            for i, h in enumerate(raw_headers):
+                if h.replace('\xa0', '').strip().lower() == name.lower():
+                    return i + 1
+            return None
+
+        id_col, title_col = col_idx("Solicitation / Notice ID"), col_idx("Bid / Opportunity Name")
+        status_col, updated_col = col_idx("Status"), col_idx("Last Updated")
+        is_auto_id = bid_id.startswith("bt-")
+
+        target_row = None
+        if not is_auto_id and bid_id and id_col:
+            for row in ws.iter_rows(min_row=2):
+                if str(row[id_col - 1].value or "").strip() == bid_id:
+                    target_row = row[0].row
+                    break
+        if target_row is None and title_col and title:
+            for row in ws.iter_rows(min_row=2):
+                if str(row[title_col - 1].value or "").strip().lower() == title.lower():
+                    target_row = row[0].row
+                    break
+        if target_row is None:
+            return jsonify({"error": "bid not found"}), 404
+
+        if status_col:
+            ws.cell(row=target_row, column=status_col, value=stage)
+        if updated_col:
+            ws.cell(row=target_row, column=updated_col, value=_dt.datetime.now().strftime("%Y-%m-%d %H:%M"))
+        atomic_save(wb, EXCEL_FILE)
+
+    # Forensic audit trail (no folder created here).
+    try:
+        from capture_engine import log_automation
+        log_automation(opportunity_id=bid_id, title=title, user="bid-tracker-ui",
+                       trigger=f"stage→{stage}", action="set_workflow_status",
+                       result="ok", folder_created=False)
+    except Exception:
+        pass
+    return jsonify({"ok": True, "status": stage})
+
+
+@app.route("/api/automation-audit")
+def automation_audit():
+    """Recent automation_audit events (folder creation, status changes, etc.)."""
+    try:
+        from capture_engine import read_recent
+        return jsonify(read_recent(int(request.args.get("limit", 100))))
+    except Exception as e:
+        return jsonify({"error": str(e), "events": []})
 
 
 @app.route("/api/health")

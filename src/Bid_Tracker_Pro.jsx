@@ -42,8 +42,22 @@ const DECISION_BADGE = {
   "Manual Review": "bg-amber-500/15 text-amber-400 border-amber-500/30",
   "Archived":      "bg-slate-500/15 text-slate-400 border-slate-500/30",
 };
-// Decision filter chips (workflow as filters, not buckets).
-const DECISION_FILTERS = ["All", "Recommended", "Manual Review"];
+// Workflow-stage filter chips (stages as filters, not separate storage buckets).
+// Filters on the mutable workflowStatus (Recommended → Prospect → Active Bid).
+const STAGE_FILTERS = [
+  { val: "All",           label: "All" },
+  { val: "Recommended",   label: "Recommended" },
+  { val: "Manual Review", label: "Manual Review" },
+  { val: "Prospect",      label: "Prospects" },
+  { val: "Active Bid",    label: "Active Bids" },
+];
+const STAGE_CHIP_ON = {
+  "Recommended":   "bg-emerald-500/20 text-emerald-400",
+  "Manual Review": "bg-amber-500/20 text-amber-400",
+  "Prospect":      "bg-blue-500/20 text-blue-400",
+  "Active Bid":    "bg-violet-500/20 text-violet-400",
+  "All":           "bg-surface-raised text-info",
+};
 const PROJECT_PHASES = ["Planning", "Design", "Procurement", "Execution", "Closeout"];
 
 const PRIORITIES = {
@@ -1754,6 +1768,24 @@ export default function BidTrackerPro() {
     }
   }, [bids, showToast]);
 
+  // Workflow-stage transition (Follow → Prospect, Bid On This → Active Bid,
+  // Archive). Writes ONLY the Status column via /api/bids/status; folder creation
+  // stays gated to the watcher on the Active Bid (PURSUE) status.
+  const setStage = useCallback((bid, stage) => {
+    setBids(bs => bs.map(b => b.id === bid.id ? { ...b, workflowStatus: stage } : b));
+    fetch("/api/bids/status", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: bid.id, title: bid.title, status: stage }),
+    })
+      .then(r => r.json())
+      .then(res => {
+        if (res && res.ok) {
+          showToast(stage === "Active Bid" ? "Bidding — folder will be created ✓" : `Moved to ${stage} ✓`, "success");
+        } else { showToast("Status update failed", "warn"); }
+      })
+      .catch(() => showToast("Status update failed — check API server", "warn"));
+  }, [showToast]);
+
   const deleteBid = useCallback(id  => { setBids(bs => bs.filter(b => b.id !== id)); showToast("Bid deleted", "warn"); }, [showToast]);
   const addBid    = useCallback(bid => {
     setBids(bs => [...bs, bid]);
@@ -1798,7 +1830,7 @@ export default function BidTrackerPro() {
         return (
           (filter === "All" || (filter === "Won" ? b.wonLoss === "Yes" : filter === "HasAmount" ? Number(b.bidAmount) > 0 : st === filter)) &&
           (catFilter === "All" || b.category === catFilter) &&
-          (decisionFilter === "All" || b.decision === decisionFilter) &&
+          (decisionFilter === "All" || b.workflowStatus === decisionFilter) &&
           (!showStarred || b.starred) &&
           (!search || [b.title, b.city, b.state, b.facility, b.contractor].some(f => f && String(f).toLowerCase().includes(search.toLowerCase())))
         );
@@ -1986,17 +2018,15 @@ export default function BidTrackerPro() {
                 {CATEGORIES.map(c => <option key={c} value={c}>{c === "All" ? "All Categories" : c}</option>)}
               </select>
 
-              {/* Capture decision filter chips */}
-              <div className="flex items-center gap-1 bg-bg-app border border-border rounded-xl p-1">
-                {DECISION_FILTERS.map(dv => {
-                  const active = decisionFilter === dv;
-                  const on = dv === "Recommended" ? "bg-emerald-500/20 text-emerald-400"
-                           : dv === "Manual Review" ? "bg-amber-500/20 text-amber-400"
-                           : "bg-surface-raised text-info";
+              {/* Workflow-stage filter chips */}
+              <div className="flex items-center gap-1 bg-bg-app border border-border rounded-xl p-1 overflow-x-auto">
+                {STAGE_FILTERS.map(({ val, label }) => {
+                  const active = decisionFilter === val;
+                  const count = (bids || []).filter(b => b.workflowStatus === val).length;
                   return (
-                    <button key={dv} onClick={() => setDecisionFilter(dv)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${active ? on : "text-text-faint hover:text-text-secondary"}`}>
-                      {dv}{dv !== "All" ? ` (${(bids || []).filter(b => b.decision === dv).length})` : ""}
+                    <button key={val} onClick={() => setDecisionFilter(val)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${active ? STAGE_CHIP_ON[val] : "text-text-faint hover:text-text-secondary"}`}>
+                      {label}{val !== "All" ? ` (${count})` : ""}
                     </button>
                   );
                 })}
@@ -2138,6 +2168,39 @@ export default function BidTrackerPro() {
                             {isExp && (
                               <tr className="bg-surface-raised/20 border-b border-border">
                                 <td colSpan="9" className="px-8 py-5">
+                                  {/* Workflow actions — Follow → Bid On This → Archive */}
+                                  <div className="flex flex-wrap items-center gap-2 mb-4" onClick={e => e.stopPropagation()}>
+                                    <span className="text-[10px] font-bold text-text-faint uppercase tracking-wider mr-1">Workflow</span>
+                                    {(bid.workflowStatus === "Recommended" || bid.workflowStatus === "Manual Review") && (
+                                      <button onClick={() => setStage(bid, "Prospect")}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/15 text-blue-400 border border-blue-500/30 text-xs font-bold hover:bg-blue-500/25 transition-colors">
+                                        <Plus className="w-3.5 h-3.5" /> Follow
+                                      </button>
+                                    )}
+                                    {bid.workflowStatus === "Prospect" && (
+                                      <button onClick={() => setStage(bid, "Active Bid")}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-500/15 text-violet-400 border border-violet-500/30 text-xs font-bold hover:bg-violet-500/25 transition-colors">
+                                        <Target className="w-3.5 h-3.5" /> Bid On This
+                                      </button>
+                                    )}
+                                    {bid.workflowStatus === "Active Bid" && (
+                                      <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-500/15 text-violet-400 border border-violet-500/30 text-xs font-bold">
+                                        <CheckCircle2 className="w-3.5 h-3.5" /> Active Bid — folder authorized
+                                      </span>
+                                    )}
+                                    {bid.workflowStatus && bid.workflowStatus !== "Archived" && (
+                                      <button onClick={() => setStage(bid, "Archived")}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-500/10 text-slate-400 border border-slate-500/20 text-xs font-bold hover:bg-slate-500/20 transition-colors">
+                                        Archive
+                                      </button>
+                                    )}
+                                    {(bid.workflowStatus === "Prospect" || bid.workflowStatus === "Archived" || bid.workflowStatus === "Active Bid") && (
+                                      <button onClick={() => setStage(bid, "Recommended")}
+                                        className="px-3 py-1.5 rounded-lg text-text-faint hover:text-text-secondary text-xs font-semibold transition-colors">
+                                        ↩ Back to Recommended
+                                      </button>
+                                    )}
+                                  </div>
                                   {bid.decision && (
                                     <div className="mb-5">
                                       <h4 className="text-[10px] font-bold text-text-faint uppercase tracking-wider mb-2">Capture Decision</h4>
