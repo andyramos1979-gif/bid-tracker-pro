@@ -35,6 +35,15 @@ const OPS_SCHEMA = [
 ];
 
 const CATEGORIES    = ["All", "Electrical", "Inspection", "HVAC", "Grounds", "Construction", "Plumbing"];
+
+// Capture Intelligence decision → badge styling (dashboard columns/badges).
+const DECISION_BADGE = {
+  "Recommended":   "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+  "Manual Review": "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  "Archived":      "bg-slate-500/15 text-slate-400 border-slate-500/30",
+};
+// Decision filter chips (workflow as filters, not buckets).
+const DECISION_FILTERS = ["All", "Recommended", "Manual Review"];
 const PROJECT_PHASES = ["Planning", "Design", "Procurement", "Execution", "Closeout"];
 
 const PRIORITIES = {
@@ -1664,6 +1673,7 @@ export default function BidTrackerPro() {
   const [view, setView]             = useState("table");
   const [filter, setFilter]         = useState("Open");
   const [catFilter, setCatFilter]   = useState("All");
+  const [decisionFilter, setDecisionFilter] = useState("All");   // capture-engine decision chips
   const [search, setSearch]         = useState("");
   const [sortKey, setSortKey]       = useState("dueDate");
   const [sortDir, setSortDir]       = useState("asc");
@@ -1788,6 +1798,7 @@ export default function BidTrackerPro() {
         return (
           (filter === "All" || (filter === "Won" ? b.wonLoss === "Yes" : filter === "HasAmount" ? Number(b.bidAmount) > 0 : st === filter)) &&
           (catFilter === "All" || b.category === catFilter) &&
+          (decisionFilter === "All" || b.decision === decisionFilter) &&
           (!showStarred || b.starred) &&
           (!search || [b.title, b.city, b.state, b.facility, b.contractor].some(f => f && String(f).toLowerCase().includes(search.toLowerCase())))
         );
@@ -1800,7 +1811,7 @@ export default function BidTrackerPro() {
         if (sortKey === "dueDate") { av = new Date(av); bv = new Date(bv); }
         return sortDir === "asc" ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1);
       });
-  }, [bids, filter, catFilter, showStarred, search, sortKey, sortDir, effectiveStatus]);
+  }, [bids, filter, catFilter, decisionFilter, showStarred, search, sortKey, sortDir, effectiveStatus]);
 
   const bidStats = useMemo(() => ({
     total:      (bids || []).length,
@@ -1975,6 +1986,22 @@ export default function BidTrackerPro() {
                 {CATEGORIES.map(c => <option key={c} value={c}>{c === "All" ? "All Categories" : c}</option>)}
               </select>
 
+              {/* Capture decision filter chips */}
+              <div className="flex items-center gap-1 bg-bg-app border border-border rounded-xl p-1">
+                {DECISION_FILTERS.map(dv => {
+                  const active = decisionFilter === dv;
+                  const on = dv === "Recommended" ? "bg-emerald-500/20 text-emerald-400"
+                           : dv === "Manual Review" ? "bg-amber-500/20 text-amber-400"
+                           : "bg-surface-raised text-info";
+                  return (
+                    <button key={dv} onClick={() => setDecisionFilter(dv)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${active ? on : "text-text-faint hover:text-text-secondary"}`}>
+                      {dv}{dv !== "All" ? ` (${(bids || []).filter(b => b.decision === dv).length})` : ""}
+                    </button>
+                  );
+                })}
+              </div>
+
               {!isMobileView && (
                 <button onClick={() => setShowAddBid(true)}
                   className="flex items-center gap-2 px-5 py-2 rounded-lg bg-success hover:bg-success text-text text-sm font-bold">
@@ -1999,6 +2026,7 @@ export default function BidTrackerPro() {
                       <tr className="bg-surface border-b border-border text-xs uppercase tracking-wider text-text-muted font-semibold">
                         <th className="px-4 py-4 w-[40px]"></th>
                         <th className="px-4 py-4"><SortBtn k="status"   label="Status" /></th>
+                        <th className="px-4 py-4"><SortBtn k="finalScore" label="Capture" /></th>
                         <th className="px-4 py-4"><SortBtn k="dueDate"  label="Deadline" /></th>
                         <th className="px-4 py-4"><SortBtn k="title"    label="Title & Location" /></th>
                         <th className="px-4 py-4"><SortBtn k="bidAmount"label="Value" /></th>
@@ -2009,7 +2037,7 @@ export default function BidTrackerPro() {
                     </thead>
                     <tbody className="divide-y divide-slate-800/50">
                       {filteredBids.length === 0 && (
-                        <tr><td colSpan="8" className="px-6 py-12 text-center text-text-faint">No matching bids found.</td></tr>
+                        <tr><td colSpan="9" className="px-6 py-12 text-center text-text-faint">No matching bids found.</td></tr>
                       )}
                       {filteredBids.map(bid => {
                         const pct   = Math.round(CHECK_FIELDS.filter(f => bid[f.key]).length / CHECK_FIELDS.length * 100);
@@ -2033,6 +2061,23 @@ export default function BidTrackerPro() {
 
                               <td className="px-4 py-4 align-top pt-5">
                                 <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wide border ${sc.bg} ${sc.border} ${sc.text}`}>{st}</span>
+                              </td>
+
+                              <td className="px-4 py-4 align-top pt-5">
+                                {bid.decision ? (
+                                  <div className="space-y-1">
+                                    <span title={bid.decisionReason || ""}
+                                      className={`inline-block px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wide border ${DECISION_BADGE[bid.decision] || DECISION_BADGE["Archived"]}`}>
+                                      {bid.decision}
+                                    </span>
+                                    {bid.finalScore > 0 && (
+                                      <div className="text-[11px] font-mono text-text-muted">
+                                        {bid.finalScore}<span className="text-text-faint">/100</span>
+                                        {bid.capabilityCount > 0 ? <span className="text-text-faint"> · {bid.capabilityCount} cap</span> : ""}
+                                      </div>
+                                    )}
+                                  </div>
+                                ) : <span className="text-text-faint text-xs">—</span>}
                               </td>
 
                               <td className="px-4 py-4 align-top pt-4">
@@ -2092,7 +2137,28 @@ export default function BidTrackerPro() {
                             {/* Expanded row */}
                             {isExp && (
                               <tr className="bg-surface-raised/20 border-b border-border">
-                                <td colSpan="8" className="px-8 py-5">
+                                <td colSpan="9" className="px-8 py-5">
+                                  {bid.decision && (
+                                    <div className="mb-5">
+                                      <h4 className="text-[10px] font-bold text-text-faint uppercase tracking-wider mb-2">Capture Decision</h4>
+                                      <div className="flex flex-wrap items-center gap-2 mb-2">
+                                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wide border ${DECISION_BADGE[bid.decision] || DECISION_BADGE["Archived"]}`}>{bid.decision}</span>
+                                        {[
+                                          ["Final Score", `${bid.finalScore}/100`],
+                                          ["Confidence", bid.confidence || "—"],
+                                          ["Capability", bid.capabilityCount],
+                                          ["Blacklist Hits", bid.blacklistHits],
+                                          ["Historical Sim.", bid.historicalSimilarity != null ? bid.historicalSimilarity.toFixed(2) : "—"],
+                                          ["Last Review", bid.lastReviewDate || "—"],
+                                        ].map(([k, v]) => (
+                                          <span key={k} className="px-2 py-1 rounded-md border border-border bg-surface-raised/50 text-[11px] text-text-muted">
+                                            <span className="text-text-faint">{k}:</span> <span className="font-mono font-semibold text-text-secondary">{v}</span>
+                                          </span>
+                                        ))}
+                                      </div>
+                                      {bid.decisionReason && <p className="text-[11.5px] text-text-muted italic">{bid.decisionReason}</p>}
+                                    </div>
+                                  )}
                                   <div className="flex flex-col md:flex-row gap-8">
                                     <div className="flex-1">
                                       <h4 className="text-[10px] font-bold text-text-faint uppercase tracking-wider mb-3">Requirements</h4>
