@@ -2243,9 +2243,9 @@ export default function BidTrackerPro() {
                                           <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-xs font-bold">
                                             <CheckCircle2 className="w-3.5 h-3.5" /> PROJECT CREATED · {bid.jobNumber || `#${bid.financialHubProjectId}`}
                                           </span>
-                                          <a href={`http://${window.location.hostname}:5175`} target="_blank" rel="noreferrer"
+                                          <a href={`http://${window.location.hostname}:5175/projects`} target="_blank" rel="noreferrer"
                                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-text-secondary hover:bg-bg-subtle transition-colors">
-                                            <ExternalLink className="w-3.5 h-3.5" /> Open Financial Hub
+                                            <ExternalLink className="w-3.5 h-3.5" /> Open in Financial Hub
                                           </a>
                                           {bid.promotionDate && <span className="text-[11px] text-text-faint">Promoted {bid.promotionDate}</span>}
                                         </div>
