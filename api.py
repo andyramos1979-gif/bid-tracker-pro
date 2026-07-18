@@ -106,6 +106,11 @@ def _score_to_priority(score):
     return "Low"
 
 
+# Workflow sheets aggregated by GET /api/bids (post 2026-07 worksheet split).
+# "Archived" and daily "Hits" sheets are intentionally excluded from the UI feed.
+TRACKED_BID_SHEETS = ["Bid Tracker", "Manual Review", "Recommended", "Prospects"]
+
+
 def _load_sheet(tab_name):
     if not EXCEL_FILE.exists():
         return None, []
@@ -132,17 +137,25 @@ def _latest_hits_tab():
 
 @app.route("/api/bids")
 def get_bids():
-    # Serve from the Bid Tracker tab — these are the filtered strong leads
-    headers, data_rows = _load_sheet("Bid Tracker")
-    if not headers:
+    # Aggregate across all workflow sheets. Post the 2026-07 worksheet split,
+    # opportunities live in Manual Review / Recommended / Prospects too — reading
+    # only "Bid Tracker" would make every migrated opportunity disappear from the
+    # UI. Missing sheets are skipped so this is safe pre- and post-migration.
+    records = []
+    for _sheet in TRACKED_BID_SHEETS:
+        headers, data_rows = _load_sheet(_sheet)
+        if not headers:
+            continue
+        for row in data_rows:
+            records.append(dict(zip(headers, row)))
+    if not records:
         return jsonify([])
 
     import re
     sam_by_id, sam_by_title = _build_sam_lookup()
 
     bids = []
-    for i, row in enumerate(data_rows):
-        d = dict(zip(headers, row))
+    for i, d in enumerate(records):
         if not d.get("Bid / Opportunity Name"):
             continue
 
@@ -532,32 +545,28 @@ def _build_prefix_string(bid: dict) -> str:
 
 @app.route("/api/bids", methods=["POST"])
 def save_bid():
-    """Upsert a bid into the 'Bid Tracker' sheet by Solicitation / Notice ID."""
+    """Upsert a bid, sheet-aware (R2). Finds the record on whichever workflow
+    sheet it lives; new records are created on the home sheet for their status
+    (default 'Manual Review' when status is missing/unknown — Bid Tracker is
+    reserved for promoted actives). If the saved status changes the record's home
+    sheet, the row is relocated."""
     import datetime as _dt
     bid = request.get_json(force=True)
     if not EXCEL_FILE.exists():
         return jsonify({"error": "Excel file not found"}), 500
+
+    status_in = str(bid.get("status") or "").strip()
 
     with workbook_lock(EXCEL_FILE):
         wb = openpyxl.load_workbook(EXCEL_FILE, data_only=False)
         if "Bid Tracker" not in wb.sheetnames:
             return jsonify({"error": "Sheet 'Bid Tracker' not found"}), 500
 
-        ws = wb["Bid Tracker"]
-        raw_headers = [str(c.value).strip() if c.value is not None else "" for c in ws[1]]
-
-        # Map normalised key → actual column index (1-based)
-        def col_idx(name):
-            for i, h in enumerate(raw_headers):
-                if h.replace('\xa0', '').strip().lower() == name.lower():
-                    return i + 1
-            return None
-
-        # Field → Excel column lookup (use actual Excel header text)
-        # NOTE: do NOT write to "AI Tags" (M) — it is a formula built from U:AC + AD
+        # Field → Excel header. Status is written only when the caller supplied one
+        # (so field-only edits never clobber the workflow status). NOTE: never write
+        # "AI Tags" (M) — it is a formula built from U:AC + AD.
         FIELD_MAP = {
             "Solicitation / Notice ID": bid.get("id", ""),
-            "Status":                   bid.get("status", "Open"),
             "Due Date":                 bid.get("dueDate", ""),
             "Bid / Opportunity Name":   bid.get("title", ""),
             "State":                    bid.get("state", ""),
@@ -571,57 +580,53 @@ def save_bid():
             "Tags Prefix":              _build_prefix_string(bid),
             "Last Updated":             _dt.datetime.now().strftime("%Y-%m-%d"),
         }
-
-        # Checklist values written to individual boolean columns U:AC
         checklist_values = {hdr: bool(bid.get(key)) for key, hdr in _CHK_COLS.items()}
 
-        # Find existing row: by Notice ID first, fall back to title for auto-generated bt-N ids
         notice_id = str(bid.get("id", "")).strip()
-        is_auto_id = notice_id.startswith("bt-")
-        target_row = None
-
-        id_col    = col_idx("Solicitation / Notice ID")
-        title_col = col_idx("Bid / Opportunity Name")
-
-        if not is_auto_id and notice_id and id_col:
-            for row in ws.iter_rows(min_row=2):
-                if str(row[id_col - 1].value or "").strip() == notice_id:
-                    target_row = row[0].row
-                    break
-
-        if target_row is None and title_col:
-            bid_title = str(bid.get("title", "")).strip().lower()
-            for row in ws.iter_rows(min_row=2):
-                if str(row[title_col - 1].value or "").strip().lower() == bid_title:
-                    target_row = row[0].row
-                    break
+        title = str(bid.get("title", "")).strip()
+        sheet_name, target_row = _find_bid_across_sheets(wb, notice_id, title)
 
         if target_row is None:
-            # Append new row
-            new_row = [""] * len(raw_headers)
-            for col_name, value in FIELD_MAP.items():
+            # Create on the home sheet for the status; default to intake, not Bid
+            # Tracker. Stamp the sheet's canonical status if none/unknown was given.
+            dest = _home_sheet(status_in) or "Manual Review"
+            ws = _clone_sheet_if_missing(wb, dest)
+            FIELD_MAP["Status"] = status_in if _home_sheet(status_in) else _SHEET_CANON_STATUS.get(dest, "Manual Review")
+            raw_headers = _hdrs(ws)
+
+            def col_idx(name):
+                return _col_of(raw_headers, name)
+
+            new_r = _last_data_row(ws) + 1
+            for col_name, value in {**FIELD_MAP, **checklist_values}.items():
                 idx = col_idx(col_name)
                 if idx:
-                    new_row[idx - 1] = value
-            for col_name, value in checklist_values.items():
-                idx = col_idx(col_name)
-                if idx:
-                    new_row[idx - 1] = value
-            ws.append(new_row)
+                    ws.cell(row=new_r, column=idx, value=value)
+            relocated_to = dest
         else:
-            # Update existing row
-            for col_name, value in FIELD_MAP.items():
+            ws = wb[sheet_name]
+            if status_in:
+                FIELD_MAP["Status"] = status_in
+            raw_headers = _hdrs(ws)
+
+            def col_idx(name):
+                return _col_of(raw_headers, name)
+
+            for col_name, value in {**FIELD_MAP, **checklist_values}.items():
                 idx = col_idx(col_name)
                 if idx:
                     ws.cell(row=target_row, column=idx, value=value)
-            for col_name, value in checklist_values.items():
-                idx = col_idx(col_name)
-                if idx:
-                    ws.cell(row=target_row, column=idx, value=value)
+
+            # Relocate if the saved status moves the record to a different sheet.
+            dest = _home_sheet(status_in)
+            relocated_to = sheet_name
+            if dest and dest != sheet_name:
+                _move_row(wb, sheet_name, target_row, dest)
+                relocated_to = dest
 
         atomic_save(wb, EXCEL_FILE)
 
-    return jsonify({"ok": True})
+    return jsonify({"ok": True, "sheet": relocated_to})
 
 
 # Federal contracting lifecycle (Phase 3G). "Active Bid" is a PURSUE status — the
@@ -656,6 +661,118 @@ _RESULT_OF = {"Closed Won": "Won", "Closed Lost": "Lost",
               "Closed Cancelled": "Cancelled", "Closed Withdrawn": "Withdrawn"}
 
 
+# ─── Worksheet-separation move engine (R2) ────────────────────────────────────
+# A bid record lives on the sheet that matches its Status. Search order below is
+# also the priority for resolving a record when the same key appears twice.
+_ALL_BID_SHEETS = ["Bid Tracker", "Manual Review", "Recommended", "Prospects", "Archived"]
+
+# Status → home worksheet. Handles both the UI/legacy vocabulary ("Active Bid",
+# "Closed Won"…) and the canonical vocabulary ("Active", "Estimating"…). A status
+# with NO mapping here (e.g. "Closed Cancelled") returns None → never relocated,
+# updated in place (pending the Q-D vocabulary decision).
+_STATUS_HOME = {
+    "Manual Review": "Manual Review",
+    "Recommended":   "Recommended",
+    "Prospect":      "Prospects",
+    "Active Bid":    "Bid Tracker",
+    "Active":        "Bid Tracker",
+    "Estimating":    "Bid Tracker",
+    "Submitted":     "Bid Tracker",
+    "Awarded":       "Bid Tracker",
+    "Lost":          "Bid Tracker",
+    "Closed Won":    "Bid Tracker",
+    "Closed Lost":   "Bid Tracker",
+    "Archived":      "Archived",
+}
+# Canonical Status to stamp when creating a record whose status is missing/unknown.
+_SHEET_CANON_STATUS = {"Manual Review": "Manual Review", "Recommended": "Recommended",
+                       "Prospects": "Prospect", "Bid Tracker": "Active", "Archived": "Archived"}
+
+
+def _home_sheet(status: str):
+    return _STATUS_HOME.get(str(status or "").strip())
+
+
+def _hdrs(ws):
+    return [str(c.value).replace('\xa0', ' ').strip() if c.value is not None else "" for c in ws[1]]
+
+
+def _col_of(headers, name):
+    tgt = name.strip().lower()
+    for i, h in enumerate(headers):
+        if h.strip().lower() == tgt:
+            return i + 1
+    return None
+
+
+def _last_data_row(ws):
+    for r in range(ws.max_row, 1, -1):
+        if any(ws.cell(r, c).value is not None for c in range(1, ws.max_column + 1)):
+            return r
+    return 1
+
+
+def _clone_sheet_if_missing(wb, name):
+    """Return the sheet, creating a header-only clone of Bid Tracker if absent.
+    Full formatting comes from scripts/migrate_worksheet_separation.py."""
+    if name in wb.sheetnames:
+        return wb[name]
+    ws = wb.create_sheet(title=name)
+    src = wb["Bid Tracker"]
+    for c in range(1, src.max_column + 1):
+        ws.cell(row=1, column=c).value = src.cell(row=1, column=c).value
+    return ws
+
+
+def _find_bid_across_sheets(wb, bid_id, title):
+    """Return (sheet_name, row_idx) or (None, None). Notice-ID match (across all
+    sheets) is preferred over a title match."""
+    bid_id = str(bid_id or "").strip()
+    title = str(title or "").strip()
+    sheets = [s for s in _ALL_BID_SHEETS if s in wb.sheetnames]
+    if bid_id and not bid_id.startswith("bt-"):
+        for name in sheets:
+            ws = wb[name]
+            idc = _col_of(_hdrs(ws), "Solicitation / Notice ID")
+            if not idc:
+                continue
+            for row in ws.iter_rows(min_row=2):
+                if str(row[idc - 1].value or "").strip() == bid_id:
+                    return name, row[0].row
+    if title:
+        tl = title.lower()
+        for name in sheets:
+            ws = wb[name]
+            tc = _col_of(_hdrs(ws), "Bid / Opportunity Name")
+            if not tc:
+                continue
+            for row in ws.iter_rows(min_row=2):
+                if str(row[tc - 1].value or "").strip().lower() == tl:
+                    return name, row[0].row
+    return None, None
+
+
+def _move_row(wb, src_name, row_idx, dest_name):
+    """Relocate a row from src to dest by HEADER NAME (robust to column drift),
+    then delete it from the source. Returns (dest_name, new_row_idx)."""
+    src = wb[src_name]
+    dest = _clone_sheet_if_missing(wb, dest_name)
+    src_h = _hdrs(src)
+    dest_h = _hdrs(dest)
+    for hname in src_h:                      # ensure dest has every source header
+        if hname and hname not in dest_h:
+            dest.cell(row=1, column=len(dest_h) + 1, value=hname)
+            dest_h = _hdrs(dest)
+    dest_ci = {h: i + 1 for i, h in enumerate(dest_h) if h}
+    row_vals = {h: src.cell(row_idx, i + 1).value for i, h in enumerate(src_h) if h}
+    new_r = _last_data_row(dest) + 1
+    for hname, v in row_vals.items():
+        if hname in dest_ci:
+            dest.cell(row=new_r, column=dest_ci[hname]).value = v
+    src.delete_rows(row_idx, 1)
+    return dest_name, new_r
+
+
 @app.route("/api/bids/status", methods=["POST"])
 def set_bid_status():
     """Move a bid to a new workflow stage. Writes ONLY the Status column (never
@@ -673,38 +790,24 @@ def set_bid_status():
 
     with workbook_lock(EXCEL_FILE):
         wb = openpyxl.load_workbook(EXCEL_FILE, data_only=False)
-        ws = wb["Bid Tracker"]
-        raw_headers = [str(c.value).strip() if c.value is not None else "" for c in ws[1]]
+
+        # R2: find the record on whichever workflow sheet it currently lives.
+        sheet_name, target_row = _find_bid_across_sheets(wb, bid_id, title)
+        if target_row is None:
+            return jsonify({"error": "bid not found"}), 404
+        ws = wb[sheet_name]
+        raw_headers = _hdrs(ws)
 
         def col_idx(name):
-            for i, h in enumerate(raw_headers):
-                if h.replace('\xa0', '').strip().lower() == name.lower():
-                    return i + 1
-            return None
+            return _col_of(raw_headers, name)
 
-        # Ensure lifecycle columns exist so we can persist submitted/closed fields.
+        # Ensure lifecycle columns exist on this sheet.
         for h in _LIFECYCLE_COLS:
             if col_idx(h) is None:
                 ws.cell(row=1, column=ws.max_column + 1, value=h)
-                raw_headers.append(h)
+                raw_headers = _hdrs(ws)
 
-        id_col, title_col = col_idx("Solicitation / Notice ID"), col_idx("Bid / Opportunity Name")
         status_col, updated_col = col_idx("Status"), col_idx("Last Updated")
-        is_auto_id = bid_id.startswith("bt-")
-
-        target_row = None
-        if not is_auto_id and bid_id and id_col:
-            for row in ws.iter_rows(min_row=2):
-                if str(row[id_col - 1].value or "").strip() == bid_id:
-                    target_row = row[0].row
-                    break
-        if target_row is None and title_col and title:
-            for row in ws.iter_rows(min_row=2):
-                if str(row[title_col - 1].value or "").strip().lower() == title.lower():
-                    target_row = row[0].row
-                    break
-        if target_row is None:
-            return jsonify({"error": "bid not found"}), 404
 
         old_status = str(ws.cell(row=target_row, column=status_col).value or "").strip() if status_col else ""
         # Server-enforced transition validation (Phase 3G-A). Known source states
@@ -740,6 +843,15 @@ def set_bid_status():
             _set("Closed Date", "")            # reopened — clear closed fields
             _set("Result Status", "")
             _set("Closed Reason", "")
+
+        # R2 move engine: relocate the row to the new status's home sheet when it
+        # differs (e.g. Prospect→Active Bid moves Prospects → Bid Tracker). Writes
+        # above already applied, so the moved row carries the new status/lifecycle.
+        dest = _home_sheet(stage)
+        relocated_to = sheet_name
+        if dest and dest != sheet_name:
+            _, target_row = _move_row(wb, sheet_name, target_row, dest)
+            relocated_to = dest
 
         atomic_save(wb, EXCEL_FILE)
 
@@ -782,6 +894,7 @@ def set_bid_status():
     except Exception:
         pass
     return jsonify({"ok": True, "status": stage, "oldStatus": old_status,
+                    "sheet": relocated_to,
                     "folderCreated": folder_created, "folderPath": folder_path,
                     "error": err or None})
 
@@ -819,14 +932,16 @@ def update_bid_meta():
 
     with workbook_lock(EXCEL_FILE):
         wb = openpyxl.load_workbook(EXCEL_FILE, data_only=False)
-        ws = wb["Bid Tracker"]
-        raw = [str(c.value).strip() if c.value is not None else "" for c in ws[1]]
+
+        # R2: locate the record on whichever sheet it lives (meta never moves it).
+        sheet_name, target_row = _find_bid_across_sheets(wb, bid_id, title)
+        if target_row is None:
+            return jsonify({"error": "bid not found"}), 404
+        ws = wb[sheet_name]
+        raw = _hdrs(ws)
 
         def ci(name):
-            for i, h in enumerate(raw):
-                if h.replace('\xa0', '').strip().lower() == name.lower():
-                    return i + 1
-            return None
+            return _col_of(raw, name)
 
         # Ensure only the meta columns being written exist.
         to_write = {}
@@ -836,21 +951,8 @@ def update_bid_meta():
                 continue
             if ci(col_name) is None:
                 ws.cell(row=1, column=ws.max_column + 1, value=col_name)
-                raw.append(col_name)
+                raw = _hdrs(ws)
             to_write[col_name] = value
-
-        id_col, title_col = ci("Solicitation / Notice ID"), ci("Bid / Opportunity Name")
-        target_row = None
-        if bid_id and not bid_id.startswith("bt-") and id_col:
-            for row in ws.iter_rows(min_row=2):
-                if str(row[id_col - 1].value or "").strip() == bid_id:
-                    target_row = row[0].row; break
-        if target_row is None and title_col and title:
-            for row in ws.iter_rows(min_row=2):
-                if str(row[title_col - 1].value or "").strip().lower() == title.lower():
-                    target_row = row[0].row; break
-        if target_row is None:
-            return jsonify({"error": "bid not found"}), 404
 
         for col_name, value in to_write.items():
             c = ci(col_name)
@@ -858,7 +960,7 @@ def update_bid_meta():
                 ws.cell(target_row, c, value=("" if value is None else value))
         atomic_save(wb, EXCEL_FILE)
 
-    return jsonify({"ok": True, "updated": list(to_write.keys())})
+    return jsonify({"ok": True, "updated": list(to_write.keys()), "sheet": sheet_name})
 
 
 @app.route("/api/automation-audit")
