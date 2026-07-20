@@ -2168,7 +2168,7 @@ export default function BidTrackerPro() {
       </header>
 
       {/* ── Main ── */}
-      <main className="max-w-[1600px] mx-auto p-6 flex flex-col gap-6">
+      <main className="max-w-[1800px] mx-auto p-6 flex flex-col gap-6">
 
         {/* ════════════ BIDS TAB ════════════ */}
         {activeTab === "bids" && (
@@ -2801,7 +2801,7 @@ export default function BidTrackerPro() {
               )}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 3xl:grid-cols-5 gap-6">
               {projects.length === 0 && (
                 <div className="col-span-full text-center py-12 text-text-faint">No active projects yet. Convert a won bid to get started.</div>
               )}
