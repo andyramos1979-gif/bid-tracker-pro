@@ -48,6 +48,12 @@
   --shadow-glow:       0 1px 0 rgba(0,0,0,.06), 0 4px 12px -4px rgba(30,64,175,.50);
 
   --radius-card: 12px;
+
+  /* ── Adaptive Layout — ultra-wide breakpoint (Phase 0) ──
+     Stock Tailwind keeps sm/md/lg/xl/2xl untouched; this adds a single
+     3xl tier at 1920px so command-center layouts add operational columns
+     instead of whitespace. Additive only — no existing class changes. */
+  --breakpoint-3xl: 120rem; /* 1920px */
 }
 
 /* ── DARK — deep navy ── */
