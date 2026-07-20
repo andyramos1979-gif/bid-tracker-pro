@@ -2168,7 +2168,7 @@ export default function BidTrackerPro() {
       </header>
 
       {/* ── Main ── */}
-      <main className="max-w-[1600px] mx-auto p-6 flex flex-col gap-6">
+      <main className="max-w-[1800px] mx-auto p-6 flex flex-col gap-6">
 
         {/* ════════════ BIDS TAB ════════════ */}
         {activeTab === "bids" && (
@@ -2324,7 +2324,7 @@ export default function BidTrackerPro() {
               <KanbanView bids={filteredBids} onSelect={isMobileView ? () => {} : setSelectedBid} onToggleStar={toggleStar} isMobileView={isMobileView} />
             ) : (
               <div className="bg-surface/40 border border-border rounded-2xl overflow-hidden shadow-sm">
-                <div className="overflow-x-auto">
+                <div className="hidden md:block overflow-x-auto">
                   <table className="w-full text-left border-collapse min-w-[1100px]">
                     <thead>
                       <tr className="bg-surface border-b border-border text-xs uppercase tracking-wider text-text-muted font-semibold">
@@ -2726,6 +2726,37 @@ export default function BidTrackerPro() {
                     </tbody>
                   </table>
                 </div>
+                {/* Mobile fallback (Phase 4): read-only cards, no horizontal scroll; tap opens
+                    the full bid modal (richer than the desktop inline expand). Table above untouched. */}
+                <div className="md:hidden divide-y divide-border">
+                  {filteredBids.length === 0 ? (
+                    <div className="px-4 py-10 text-center text-text-faint text-sm">No matching bids found.</div>
+                  ) : filteredBids.map(bid => {
+                    const pct = Math.round(CHECK_FIELDS.filter(f => bid[f.key]).length / CHECK_FIELDS.length * 100);
+                    const st  = effectiveStatus(bid);
+                    const sc  = STATUS_COLORS[st] || STATUS_COLORS["Open"];
+                    const pc  = PRIORITIES[bid.priority] || PRIORITIES["Medium"];
+                    return (
+                      <button key={bid.id} onClick={() => setSelectedBid(bid)} className="w-full text-left px-4 py-3 hover:bg-surface-raised/20 transition-colors">
+                        <div className="flex items-center gap-2 mb-1.5">
+                          {bid.starred && <Star className="w-3.5 h-3.5 text-warning flex-shrink-0" fill="currentColor" />}
+                          <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wide border ${sc.bg} ${sc.border} ${sc.text}`}>{st}</span>
+                          <span className={`ml-auto px-1.5 py-0.5 rounded text-[9px] font-bold uppercase border ${pc.bg} ${pc.border} ${pc.text}`}>{bid.priority || "Medium"}</span>
+                        </div>
+                        <div className="text-sm font-semibold text-text line-clamp-2 mb-1">{bid.title}</div>
+                        <div className="flex items-center gap-x-2 gap-y-0.5 text-[11px] text-text-muted flex-wrap">
+                          <span className="flex items-center gap-1"><Building className="w-3 h-3" /> {bid.facility}</span>
+                          {bid.city && <span>· {bid.city}</span>}
+                          <span className="ml-auto font-mono font-semibold text-success">{bid.bidAmount ? `$${Number(bid.bidAmount).toLocaleString()}` : "—"}</span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-1.5 text-[10px] text-text-faint">
+                          <span>Due {bid.dueDate ? new Date(bid.dueDate).toLocaleDateString() : "—"}</span>
+                          <span className="ml-auto">{pct}% complete</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             )}
 
@@ -2801,7 +2832,7 @@ export default function BidTrackerPro() {
               )}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 3xl:grid-cols-5 gap-6">
               {projects.length === 0 && (
                 <div className="col-span-full text-center py-12 text-text-faint">No active projects yet. Convert a won bid to get started.</div>
               )}
