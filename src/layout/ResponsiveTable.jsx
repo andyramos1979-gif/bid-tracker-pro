@@ -17,10 +17,10 @@ function cell(col, row) {
   return col.render ? col.render(row) : row[col.key];
 }
 
-export function ResponsiveTable({ columns, rows, rowKey, onRowClick, empty, dense = false, className = "" }) {
+export function ResponsiveTable({ columns, rows, rowKey, onRowClick, empty, dense = false, bare = false, className = "" }) {
   if (!rows || !rows.length) {
     return (
-      <div className="rounded-xl border border-border bg-surface p-8 text-center text-sm text-text-faint shadow-[var(--shadow-card)]">
+      <div className={`p-8 text-center text-sm text-text-faint ${bare ? "" : "rounded-xl border border-border bg-surface shadow-[var(--shadow-card)]"}`}>
         {empty || "No records."}
       </div>
     );
@@ -30,11 +30,17 @@ export function ResponsiveTable({ columns, rows, rowKey, onRowClick, empty, dens
   const primary = columns.find((c) => c.primary) || columns[0];
   const cardCols = columns.filter((c) => c !== primary && !c.hideOnCard);
   const clickable = typeof onRowClick === "function";
+  const mdWrap = bare
+    ? "hidden md:block overflow-x-auto"
+    : "hidden md:block overflow-x-auto rounded-xl border border-border bg-surface shadow-[var(--shadow-card)]";
+  const cardCls = bare
+    ? "rounded-xl border border-border bg-surface-sunken/40 p-3.5"
+    : "rounded-xl border border-border bg-surface p-3.5 shadow-[var(--shadow-card)]";
 
   return (
     <div className={className}>
       {/* Tablet & up: real table (overflow-x safety net for extreme widths) */}
-      <div className="hidden md:block overflow-x-auto rounded-xl border border-border bg-surface shadow-[var(--shadow-card)]">
+      <div className={mdWrap}>
         <table className="w-full text-left text-[13px]">
           <thead>
             <tr className="border-b border-border bg-surface-sunken/60">
@@ -72,7 +78,7 @@ export function ResponsiveTable({ columns, rows, rowKey, onRowClick, empty, dens
           <div
             key={rowKey(row, i)}
             onClick={clickable ? () => onRowClick(row) : undefined}
-            className={`rounded-xl border border-border bg-surface p-3.5 shadow-[var(--shadow-card)] ${clickable ? "cursor-pointer active:bg-surface-sunken/50" : ""}`}
+            className={`${cardCls} ${clickable ? "cursor-pointer active:bg-surface-sunken/50" : ""}`}
           >
             <div className="text-sm font-bold text-text mb-2 leading-tight">{cell(primary, row)}</div>
             <dl className="grid grid-cols-2 gap-x-3 gap-y-2">
