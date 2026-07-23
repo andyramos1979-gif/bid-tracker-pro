@@ -7,6 +7,8 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 from pathlib import Path
 import hashlib
+import hmac
+import os
 import sys
 import uuid
 import openpyxl
@@ -21,6 +23,47 @@ app = Flask(__name__)
 # scripting the unauthenticated API via the user's browser). Genuine auth is
 # tracked as M-18.
 CORS(app, origins=["http://localhost:5173", "http://127.0.0.1:5173"])
+
+
+# ── M-18 (2026-07-23): shared-secret authentication ───────────────────────────
+# The API has no user model. Trusted callers (the Bid UI via the vite proxy, and
+# the Financial Hub's job_cost_module) send X-Bid-Api-Key. The secret is loaded
+# from the environment or the local .env (python-dotenv is not installed for this
+# service), never exposed to browser JavaScript, and never committed.
+def _load_bid_api_key() -> str:
+    key = os.environ.get("BID_API_KEY", "").strip()
+    if key:
+        return key
+    env_path = Path(__file__).parent / ".env"
+    if env_path.exists():
+        for line in env_path.read_text().splitlines():
+            line = line.strip()
+            if line.startswith("BID_API_KEY="):
+                return line.split("=", 1)[1].strip()
+    return ""
+
+
+BID_API_KEY = _load_bid_api_key()
+if not BID_API_KEY:
+    print("⚠️  M-18: BID_API_KEY is not set — protected routes will refuse all "
+          "requests (500). Set it in bid-tracker-app/.env.", file=sys.stderr)
+
+# Only health/monitoring routes are exempt; every read/write route is protected.
+_AUTH_EXEMPT = {"/api/health", "/api/system/health"}
+
+
+@app.before_request
+def _require_api_key():
+    if request.method == "OPTIONS":          # CORS preflight — let flask-cors answer
+        return None
+    if request.path in _AUTH_EXEMPT:
+        return None
+    if not BID_API_KEY:                       # server misconfiguration — fail loud
+        return jsonify({"error": "server auth not configured (BID_API_KEY unset)"}), 500
+    provided = request.headers.get("X-Bid-Api-Key", "")
+    if not provided or not hmac.compare_digest(provided, BID_API_KEY):
+        return jsonify({"error": "unauthorized: missing or invalid X-Bid-Api-Key"}), 401
+    return None
 
 AGENT_DIR = Path(
     "/Users/andyramos/Developer"
