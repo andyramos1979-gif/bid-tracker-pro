@@ -14,7 +14,13 @@ import psycopg2
 import psycopg2.extras
 
 app = Flask(__name__)
-CORS(app)
+# M-17 (2026-07-23): this Flask API has no authentication, so it must not be
+# openly reachable. CORS is restricted to the local Bid Tracker UI origin (the
+# browser only ever calls the API through the vite proxy at same-origin :5173,
+# so this does not affect normal use — it blocks arbitrary websites from
+# scripting the unauthenticated API via the user's browser). Genuine auth is
+# tracked as M-18.
+CORS(app, origins=["http://localhost:5173", "http://127.0.0.1:5173"])
 
 AGENT_DIR = Path(
     "/Users/andyramos/Developer"
@@ -1146,4 +1152,7 @@ if __name__ == "__main__":
     print(f"  API server → http://localhost:5050")
     print(f"  Excel file → {EXCEL_FILE}")
     print(f"  File exists: {EXCEL_FILE.exists()}")
-    app.run(host="0.0.0.0", port=5050, debug=False)
+    # M-17: bind to localhost only. The API is unauthenticated; 0.0.0.0 exposed
+    # it to the whole LAN. The Bid Tracker UI reaches it via the vite proxy
+    # (target 127.0.0.1:5050), so localhost binding does not affect the UI.
+    app.run(host="127.0.0.1", port=5050, debug=False)

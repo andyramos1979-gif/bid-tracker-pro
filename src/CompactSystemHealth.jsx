@@ -10,8 +10,10 @@ export default function CompactSystemHealth() {
 
   const fetchHealth = useCallback(async () => {
     try {
+      // M-17: relative path -> vite proxy -> 127.0.0.1:5050 (Flask API is
+      // localhost-bound; direct :5050 fetch would break for remote UI users).
       const res = await fetch(
-        `http://${window.location.hostname}:5050/api/system/health`,
+        `/api/system/health`,
         { signal: AbortSignal.timeout(4000) }
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);

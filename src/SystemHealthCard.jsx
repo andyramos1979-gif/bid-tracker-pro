@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Activity, RefreshCw, CheckCircle2, AlertTriangle, XCircle, Loader } from "lucide-react";
 
-const API = `http://${window.location.hostname}:5050/api/system/health`;
+// M-17: relative path -> vite proxy -> 127.0.0.1:5050 (Flask API is localhost-bound).
+const API = `/api/system/health`;
 const POLL_MS = 30_000;
 
 const STATUS_META = {
