@@ -12,40 +12,42 @@
   --color-brand-300:#A5B4FC; --color-brand-400:#6587F6; --color-brand-500:#3B66F0;
   --color-brand-600:#2563EB; --color-brand-700:#1E40AF; --color-brand-800:#1E3A8A; --color-brand-900:#172554;
 
-  /* ── SEMANTIC TOKENS — LIGHT ── */
-  --color-bg-app:         #FAFAF7;
-  --color-bg-subtle:      #F4F4EF;
-  --color-surface:        #FFFFFF;
+  /* ── SEMANTIC TOKENS — LIGHT (Premium spec; DARK below is locked) ── */
+  --color-bg-app:         #F3F4F6;   /* --bg */
+  --color-bg-subtle:      #F9FAFB;
+  --color-surface:        #FFFFFF;   /* --surface */
   --color-surface-raised: #FFFFFF;
-  --color-surface-sunken: #F4F4EF;
+  --color-surface-sunken: #F9FAFB;   /* --surface-secondary */
 
-  --color-border:         #ECECE6;
-  --color-border-strong:  #E2E2DA;
+  --color-border:         #E5E7EB;   /* --border */
+  --color-border-strong:  #D1D5DB;
   --color-ring:           #2563EB;
 
-  --color-text:           #101218;
-  --color-text-secondary: #475569;
-  --color-text-muted:     #64748B;
-  --color-text-faint:     #94A3B8;
+  --color-text:           #111827;   /* --text-primary */
+  --color-text-secondary: #6B7280;   /* --text-secondary */
+  --color-text-muted:     #6B7280;
+  --color-text-faint:     #94A3B8;   /* --text-tertiary */
   --color-text-inverse:   #FFFFFF;
 
+  /* NAVY brand accent, kept per branding standard (NOT unified to #2563EB).
+     Status/info badges stay blue below. */
   --color-accent:         #1E40AF;
   --color-accent-hover:   #1E3A8A;
   --color-accent-fg:      #FFFFFF;
   --color-accent-soft:    #EEF2FF;
   --color-accent-soft-fg: #1E40AF;
 
-  --color-success:      #059669; --color-success-soft:#ECFDF5; --color-success-fg:#047857; --color-success-ring:#A7F3D0;
-  --color-warning:      #D97706; --color-warning-soft:#FFFBEB; --color-warning-fg:#B45309; --color-warning-ring:#FDE68A;
-  --color-danger:       #E11D48; --color-danger-soft: #FFF1F2; --color-danger-fg: #BE123C; --color-danger-ring: #FECDD3;
-  --color-info:         #2563EB; --color-info-soft:   #EFF6FF; --color-info-fg:   #1D4ED8; --color-info-ring:   #BFDBFE;
-  --color-neutral:      #64748B; --color-neutral-soft:#F1F5F9; --color-neutral-fg:#334155; --color-neutral-ring:#E2E8F0;
-  --color-special:      #7C3AED; --color-special-soft:#F5F3FF; --color-special-fg:#6D28D9; --color-special-ring:#DDD6FE;
+  --color-success:      #16A34A; --color-success-soft:#DCFCE7; --color-success-fg:#15803D; --color-success-ring:#86EFAC;
+  --color-warning:      #D97706; --color-warning-soft:#FEF3C7; --color-warning-fg:#B45309; --color-warning-ring:#FCD34D;
+  --color-danger:       #DC2626; --color-danger-soft: #FEE2E2; --color-danger-fg: #B91C1C; --color-danger-ring: #FCA5A5;
+  --color-info:         #2563EB; --color-info-soft:   #DBEAFE; --color-info-fg:   #1D4ED8; --color-info-ring:   #93C5FD;
+  --color-neutral:      #6B7280; --color-neutral-soft:#F3F4F6; --color-neutral-fg:#374155; --color-neutral-ring:#E5E7EB;
+  --color-special:      #7C3AED; --color-special-soft:#EDE9FE; --color-special-fg:#6D28D9; --color-special-ring:#C4B5FD;
 
-  --shadow-card:       0 1px 0 rgba(15,17,21,.04), 0 1px 2px rgba(15,17,21,.04);
-  --shadow-card-hover: 0 1px 0 rgba(15,17,21,.04), 0 6px 18px -8px rgba(15,17,21,.16);
-  --shadow-pop:        0 24px 60px -12px rgba(15,17,21,.28);
-  --shadow-glow:       0 1px 0 rgba(0,0,0,.06), 0 4px 12px -4px rgba(30,64,175,.50);
+  --shadow-card:       0 1px 2px rgba(0,0,0,.04), 0 4px 12px rgba(0,0,0,.05);
+  --shadow-card-hover: 0 10px 30px rgba(0,0,0,.08);
+  --shadow-pop:        0 24px 60px -12px rgba(17,24,39,.20);
+  --shadow-glow:       0 1px 2px rgba(0,0,0,.06), 0 4px 14px -4px rgba(37,99,235,.35);
 
   --radius-card: 12px;
 
