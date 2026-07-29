@@ -179,135 +179,173 @@ def _latest_hits_tab():
     return None
 
 
+# The capture pipeline writes its decisions to the "Recommended" and
+# "Manual Review" sheets (identical 41-column schema to the legacy tab). The old
+# "Bid Tracker" tab is no longer populated by capture, so /api/bids serves the
+# decision sheets and keeps "Bid Tracker" as a blank-safety fallback only.
+_BID_SOURCE_SHEETS = ("Recommended", "Manual Review")
+
+_STATUS_MAP = {"Identified": "Open", "Submitted": "Open", "Won": "Awarded",
+               "Lost": "Closed", "Archived": "Closed",
+               # Capture-engine decisions are active leads:
+               "Recommended": "Open", "Manual Review": "Open",
+               "Prospect": "Open", "Active Bid": "Open",
+               "Awarded": "Awarded",
+               "Closed Won": "Closed", "Closed Lost": "Closed",
+               "Closed Cancelled": "Closed", "Closed Withdrawn": "Closed"}
+
+
+def _build_bid(d, fallback_id, source_status, sam_by_id, sam_by_title):
+    """Map one decision-sheet/legacy row dict to the UI bid shape.
+
+    source_status, when given (the source sheet name — "Recommended" /
+    "Manual Review"), is the normalized pipeline stage so a row's decision
+    bucket is deterministic regardless of the Status cell. Falls back to the
+    row's own Status column for the legacy Bid Tracker tab.
+    """
+    import re
+
+    score = d.get("AI Score") or 0
+    try:
+        score = int(score)
+    except (TypeError, ValueError):
+        score = 0
+
+    status_raw = source_status or str(d.get("Status") or "Identified")
+    status = _STATUS_MAP.get(status_raw, "Open")
+
+    def _int(v):
+        try: return int(float(v))
+        except (TypeError, ValueError): return 0
+    def _float(v):
+        try: return round(float(v), 3)
+        except (TypeError, ValueError): return 0.0
+    decision = str(d.get("Decision") or "").strip()
+
+    notes = str(d.get("Notes / Rationale") or "")
+    # SAM Link: dedicated column first, fall back to regex from Notes
+    link = str(d.get("SAM Link") or "").strip()
+    if not link:
+        m = re.search(r"https?://\S+", notes)
+        link = m.group(0) if m else ""
+
+    # Due date and agency: use Excel value, fall back to SAM raw lookup
+    notice_id = str(d.get("Solicitation / Notice ID") or "").lower()
+    title_key = str(d.get("Bid / Opportunity Name") or "").strip().lower()
+    sam_info  = sam_by_id.get(notice_id) or sam_by_title.get(title_key) or {}
+
+    due    = _fmt_date(d.get("Due Date")) or sam_info.get("due_date", "")
+    agency = str(d.get("Agency / Department") or "") or sam_info.get("agency", "")
+    # Ignore placeholder values left from old data
+    if agency in ("Prompt", "VA Medical Center") and sam_info.get("agency"):
+        agency = sam_info["agency"]
+
+    prefix = _parse_prefix(str(d.get("Tags Prefix") or ""))
+
+    return {
+        "id":            str(d.get("Solicitation / Notice ID") or fallback_id),
+        "status":        status,
+        "workflowStatus": status_raw,   # raw pipeline stage (Recommended/Manual Review/Prospect/Active Bid/...)
+        "dueDate":       due,
+        "title":         str(d.get("Bid / Opportunity Name") or ""),
+        "state":         str(d.get("State") or ""),
+        "city":          str(d.get("City")  or ""),
+        "facility":      agency or "VA Medical Center",
+        "bidAmount":     str(d.get("Bid Amount") or ""),
+        "awardedAmount": str(d.get("Award Amount") or ""),
+        "contractor":    "",
+        "priority":      _score_to_priority(score),
+        "category":      prefix["category"] or "Electrical",
+        "starred":       prefix["starred"],
+        "link":          link,
+        "score":         score,
+        "whyItScored":   notes,
+        "setAside":      "",
+        "triennial":     "triennial" in notes.lower(),
+        "maintenance":   "maintenance" in notes.lower(),
+        "postedDate":    str(d.get("Date Added") or ""),
+        "naics":         str(d.get("NAICS") or ""),
+        "folderPath":    str(d.get("Folder Path") or ""),
+        # ── Capture Intelligence decision fields ──
+        "decision":             decision or (source_status or ("Recommended" if score >= 85 else "")),
+        "finalScore":           _int(d.get("Final Score") or score),
+        "decisionReason":       str(d.get("Decision Reason") or ""),
+        "capabilityCount":      _int(d.get("Capability Count")),
+        "blacklistHits":        _int(d.get("Blacklist Hits")),
+        "historicalSimilarity": _float(d.get("Historical Similarity")),
+        "confidence":           _int(d.get("Confidence")),
+        "lastReviewDate":       str(d.get("Last Review Date") or ""),
+        # ── Phase 3B promotion fields ──
+        "financialHubProjectId": str(d.get("Financial Hub Project ID") or ""),
+        "jobNumber":             str(d.get("Job Number") or ""),
+        "promotionStatus":       str(d.get("Promotion Status") or ""),
+        "promotionDate":         str(d.get("Promotion Date") or ""),
+        # ── Phase 3G lifecycle fields ──
+        "submittedDate":         str(d.get("Submitted Date") or ""),
+        "submittedBy":           str(d.get("Submitted By") or ""),
+        "submissionStatus":      str(d.get("Submission Status") or ""),
+        "closedDate":            str(d.get("Closed Date") or ""),
+        "closedReason":          str(d.get("Closed Reason") or ""),
+        "resultStatus":          str(d.get("Result Status") or ""),
+        # ── Phase 3H command-center meta ──
+        "awardProbability":      _int(d.get("Award Probability")),
+        "followUpStatus":        str(d.get("Follow-Up Status") or ""),
+        "lastFollowUp":          str(d.get("Last Follow-Up Date") or ""),
+        "nextFollowUp":          str(d.get("Next Follow-Up Date") or ""),
+        "followUpNotes":         str(d.get("Follow-Up Notes") or ""),
+        "coName":                str(d.get("CO Name") or ""),
+        "coEmail":               str(d.get("CO Email") or ""),
+        "awardDecisionDate":     str(d.get("Award Decision Date") or ""),
+        "debriefRequested":      str(d.get("Debrief Requested") or ""),
+        "debriefReceived":       str(d.get("Debrief Received") or ""),
+        "notes":         [],
+        "chk_sf1449":     bool(d.get("SF1449")),
+        "chk_sow_pws":    bool(d.get("SOW/PWS")),
+        "chk_pricing":    bool(d.get("Pricing")),
+        "chk_past_perf":  bool(d.get("Past Perf")),
+        "chk_osha_safety": bool(d.get("OSHA")),
+        "chk_licenses":   bool(d.get("Licenses")),
+        "chk_site_visit": bool(d.get("Site Visit")),
+        "chk_sub_loi":    bool(d.get("Sub LOI")),
+        "chk_compliance": bool(d.get("Compliance")),
+    }
+
+
 @app.route("/api/bids")
 def get_bids():
-    # Serve from the Bid Tracker tab — these are the filtered strong leads
-    headers, data_rows = _load_sheet("Bid Tracker")
-    if not headers:
-        return jsonify([])
-
-    import re
     sam_by_id, sam_by_title = _build_sam_lookup()
 
+    # Serve the capture-engine decision sheets. Dedup by notice_id across sheets;
+    # Recommended is read first so it wins over a Manual Review duplicate.
     bids = []
-    for i, row in enumerate(data_rows):
-        d = dict(zip(headers, row))
-        if not d.get("Bid / Opportunity Name"):
+    seen = {}   # lowercased notice_id -> True (first writer wins)
+    for sheet_name in _BID_SOURCE_SHEETS:
+        headers, data_rows = _load_sheet(sheet_name)
+        if not headers:
             continue
+        for i, row in enumerate(data_rows):
+            d = dict(zip(headers, row))
+            if not d.get("Bid / Opportunity Name"):
+                continue
+            nid = str(d.get("Solicitation / Notice ID") or "").strip().lower()
+            if nid and nid in seen:
+                continue   # earlier sheet (Recommended) already won this notice_id
+            if nid:
+                seen[nid] = True
+            bids.append(_build_bid(d, f"{sheet_name.lower().replace(' ', '')}-{i}",
+                                   sheet_name, sam_by_id, sam_by_title))
 
-        score = d.get("AI Score") or 0
-        try:
-            score = int(score)
-        except (TypeError, ValueError):
-            score = 0
-
-        status_raw = str(d.get("Status") or "Identified")
-        status_map = {"Identified": "Open", "Submitted": "Open", "Won": "Awarded",
-                      "Lost": "Closed", "Archived": "Closed",
-                      # Capture-engine decisions are active leads:
-                      "Recommended": "Open", "Manual Review": "Open",
-                      "Prospect": "Open", "Active Bid": "Open",
-                      "Submitted": "Open", "Awarded": "Awarded",
-                      "Closed Won": "Closed", "Closed Lost": "Closed",
-                      "Closed Cancelled": "Closed", "Closed Withdrawn": "Closed"}
-        status = status_map.get(status_raw, "Open")
-
-        # Capture Intelligence decision fields (blank on legacy rows).
-        def _int(v):
-            try: return int(float(v))
-            except (TypeError, ValueError): return 0
-        def _float(v):
-            try: return round(float(v), 3)
-            except (TypeError, ValueError): return 0.0
-        decision = str(d.get("Decision") or "").strip()
-
-        notes = str(d.get("Notes / Rationale") or "")
-        # SAM Link: dedicated column first, fall back to regex from Notes
-        link = str(d.get("SAM Link") or "").strip()
-        if not link:
-            m = re.search(r"https?://\S+", notes)
-            link = m.group(0) if m else ""
-
-        # Due date and agency: use Excel value, fall back to SAM raw lookup
-        notice_id = str(d.get("Solicitation / Notice ID") or "").lower()
-        title_key = str(d.get("Bid / Opportunity Name") or "").strip().lower()
-        sam_info  = sam_by_id.get(notice_id) or sam_by_title.get(title_key) or {}
-
-        due    = _fmt_date(d.get("Due Date")) or sam_info.get("due_date", "")
-        agency = str(d.get("Agency / Department") or "") or sam_info.get("agency", "")
-        # Ignore placeholder values left from old data
-        if agency in ("Prompt", "VA Medical Center") and sam_info.get("agency"):
-            agency = sam_info["agency"]
-
-        prefix = _parse_prefix(str(d.get("Tags Prefix") or ""))
-
-        bids.append({
-            "id":            str(d.get("Solicitation / Notice ID") or f"bt-{i}"),
-            "status":        status,
-            "workflowStatus": status_raw,   # raw pipeline stage (Recommended/Manual Review/Prospect/Active Bid/...)
-            "dueDate":       due,
-            "title":         str(d.get("Bid / Opportunity Name") or ""),
-            "state":         str(d.get("State") or ""),
-            "city":          str(d.get("City")  or ""),
-            "facility":      agency or "VA Medical Center",
-            "bidAmount":     str(d.get("Bid Amount") or ""),
-            "awardedAmount": str(d.get("Award Amount") or ""),
-            "contractor":    "",
-            "priority":      _score_to_priority(score),
-            "category":      prefix["category"] or "Electrical",
-            "starred":       prefix["starred"],
-            "link":          link,
-            "score":         score,
-            "whyItScored":   notes,
-            "setAside":      "",
-            "triennial":     "triennial" in notes.lower(),
-            "maintenance":   "maintenance" in notes.lower(),
-            "postedDate":    str(d.get("Date Added") or ""),
-            "naics":         str(d.get("NAICS") or ""),
-            "folderPath":    str(d.get("Folder Path") or ""),
-            # ── Capture Intelligence decision fields ──
-            "decision":             decision or ("Recommended" if score >= 85 else ""),
-            "finalScore":           _int(d.get("Final Score") or score),
-            "decisionReason":       str(d.get("Decision Reason") or ""),
-            "capabilityCount":      _int(d.get("Capability Count")),
-            "blacklistHits":        _int(d.get("Blacklist Hits")),
-            "historicalSimilarity": _float(d.get("Historical Similarity")),
-            "confidence":           _int(d.get("Confidence")),
-            "lastReviewDate":       str(d.get("Last Review Date") or ""),
-            # ── Phase 3B promotion fields ──
-            "financialHubProjectId": str(d.get("Financial Hub Project ID") or ""),
-            "jobNumber":             str(d.get("Job Number") or ""),
-            "promotionStatus":       str(d.get("Promotion Status") or ""),
-            "promotionDate":         str(d.get("Promotion Date") or ""),
-            # ── Phase 3G lifecycle fields ──
-            "submittedDate":         str(d.get("Submitted Date") or ""),
-            "submittedBy":           str(d.get("Submitted By") or ""),
-            "submissionStatus":      str(d.get("Submission Status") or ""),
-            "closedDate":            str(d.get("Closed Date") or ""),
-            "closedReason":          str(d.get("Closed Reason") or ""),
-            "resultStatus":          str(d.get("Result Status") or ""),
-            # ── Phase 3H command-center meta ──
-            "awardProbability":      _int(d.get("Award Probability")),
-            "followUpStatus":        str(d.get("Follow-Up Status") or ""),
-            "lastFollowUp":          str(d.get("Last Follow-Up Date") or ""),
-            "nextFollowUp":          str(d.get("Next Follow-Up Date") or ""),
-            "followUpNotes":         str(d.get("Follow-Up Notes") or ""),
-            "coName":                str(d.get("CO Name") or ""),
-            "coEmail":               str(d.get("CO Email") or ""),
-            "awardDecisionDate":     str(d.get("Award Decision Date") or ""),
-            "debriefRequested":      str(d.get("Debrief Requested") or ""),
-            "debriefReceived":       str(d.get("Debrief Received") or ""),
-            "notes":         [],
-            "chk_sf1449":     bool(d.get("SF1449")),
-            "chk_sow_pws":    bool(d.get("SOW/PWS")),
-            "chk_pricing":    bool(d.get("Pricing")),
-            "chk_past_perf":  bool(d.get("Past Perf")),
-            "chk_osha_safety": bool(d.get("OSHA")),
-            "chk_licenses":   bool(d.get("Licenses")),
-            "chk_site_visit": bool(d.get("Site Visit")),
-            "chk_sub_loi":    bool(d.get("Sub LOI")),
-            "chk_compliance": bool(d.get("Compliance")),
-        })
+    # Fallback ONLY when the decision sheets are entirely empty (e.g. a
+    # pre-capture workbook) — serve the legacy Bid Tracker tab so the UI is
+    # never blank.
+    if not bids:
+        headers, data_rows = _load_sheet("Bid Tracker")
+        if headers:
+            for i, row in enumerate(data_rows):
+                d = dict(zip(headers, row))
+                if not d.get("Bid / Opportunity Name"):
+                    continue
+                bids.append(_build_bid(d, f"bt-{i}", None, sam_by_id, sam_by_title))
 
     return jsonify(bids)
 
