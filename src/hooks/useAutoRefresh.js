@@ -14,11 +14,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { realtimeService } from "../realtime/RealtimeService";
 import { BACKOFF } from "../realtime/refreshConfig";
-import { useRefreshReporter, useRegisterForceRefresh } from "../realtime/RefreshStatus";
+import { useRefreshReporter, useRegisterForceRefresh, useUnregisterChannel } from "../realtime/RefreshStatus";
 
 export function useAutoRefresh({ key, intervalMs, refresh, enabled = true }) {
   const report = useRefreshReporter();
   const registerForce = useRegisterForceRefresh();
+  const unregister = useUnregisterChannel();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const failRef = useRef(0);
   const retryTimer = useRef(null);
@@ -51,10 +52,15 @@ export function useAutoRefresh({ key, intervalMs, refresh, enabled = true }) {
 
   // Poll registration (RealtimeService owns the timer + tab-visibility pause/resume).
   useEffect(() => {
-    if (!enabled) { realtimeService.unsubscribe(key); return undefined; }
+    if (!enabled) { realtimeService.unsubscribe(key); unregister(key); return undefined; }
     const unsub = realtimeService.subscribe(key, () => run({ force: false }), intervalMs);
     return () => { unsub(); if (retryTimer.current) clearTimeout(retryTimer.current); };
-  }, [key, intervalMs, enabled, run]);
+  }, [key, intervalMs, enabled, run, unregister]);
+
+  // Drop this channel's status record when the surface truly unmounts (its page closed),
+  // so a stale "5 min ago" entry can't flip overall health to Delayed. Keyed on `key`
+  // only, so it does NOT fire on interval/run changes (no flicker while mounted).
+  useEffect(() => () => unregister(key), [key, unregister]);
 
   // Global force-refresh (the Sync button triggers every registered channel).
   useEffect(() => registerForce(key, () => run({ force: true })), [key, run, registerForce]);
