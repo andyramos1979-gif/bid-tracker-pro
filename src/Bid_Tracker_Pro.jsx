@@ -1,4 +1,7 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useAutoRefresh } from "./hooks/useAutoRefresh.js";
+import { RefreshStatusBar } from "./realtime/RefreshStatus.jsx";
+import { REFRESH_MS } from "./realtime/refreshConfig.js";
 import "./FuturisticCard.css";
 import CompactSystemHealth from "./CompactSystemHealth";
 import TodoPanel from "./TodoPanel";
@@ -423,43 +426,45 @@ export default function BidTrackerPro() {
   // ── Recompete state ──
   const [recompetes, setRecompetes] = useState([]);
 
-  // ── Load Bids & Recompete Watch from local Excel API ──
-  useEffect(() => {
-    const load = () => {
-      fetch("/api/bids")
-        .then(r => r.json())
-        .then(data => setBids(data))
-        .catch(() => {});
+  // ── Bids & Recompete (bid dashboard / opportunity lists / pipeline) — auto-refresh @15s ──
+  const loadBids = useCallback(() => Promise.all([
+    fetch("/api/bids").then(r => r.json()).then(data => setBids(data)).catch(() => {}),
+    fetch("/api/recompete").then(r => r.json()).then(data => setRecompetes(data)).catch(() => {}),
+  ]), []);
+  const { refresh: refreshBids } = useAutoRefresh({
+    key: "bidDashboard", intervalMs: REFRESH_MS.bidDashboard, refresh: loadBids,
+  });
+  const refreshBidsRef = useRef(refreshBids);
+  refreshBidsRef.current = refreshBids;
+  useEffect(() => { loadBids(); }, [loadBids]);   // initial load (poll is handled by useAutoRefresh)
 
-      fetch("/api/recompete")
-        .then(r => r.json())
-        .then(data => setRecompetes(data))
-        .catch(() => {});
-    };
-
-    load();
-    const interval = setInterval(load, 30000); // auto-refresh every 30 seconds
-    return () => clearInterval(interval);
-  }, []);
-
-  // ── Job Ledger polling ──
-  useEffect(() => {
-    const loadOps = () => {
-      const qs = new URLSearchParams({ limit: 50 });
-      if (opsStatusFilter) qs.set("status", opsStatusFilter);
-      if (opsFlowFilter)   qs.set("flow",   opsFlowFilter);
-      Promise.all([
-        fetch("/ops/jobs/summary").then(r => r.json()).catch(() => null),
-        fetch(`/ops/jobs?${qs}`).then(r => r.json()).catch(() => []),
-      ]).then(([s, j]) => {
-        if (s) setOpsSummary(s);
-        setOpsJobs(Array.isArray(j) ? j : []);
+  // ── Job Ledger / Operations dashboard — auto-refresh @15s + event-driven bid refresh ──
+  const prevJobsRef = useRef([]);
+  const loadOps = useCallback(() => {
+    const qs = new URLSearchParams({ limit: 50 });
+    if (opsStatusFilter) qs.set("status", opsStatusFilter);
+    if (opsFlowFilter)   qs.set("flow",   opsFlowFilter);
+    return Promise.all([
+      fetch("/ops/jobs/summary").then(r => r.json()).catch(() => null),
+      fetch(`/ops/jobs?${qs}`).then(r => r.json()).catch(() => []),
+    ]).then(([s, j]) => {
+      if (s) setOpsSummary(s);
+      const jobs = Array.isArray(j) ? j : [];
+      setOpsJobs(jobs);
+      // EVENT REFRESH: a job just reached a terminal state (SAM import, bid import,
+      // AI scoring, automation job) → pull fresh bids so new opportunities/scores appear.
+      const isTerminal = (st) => ["done", "completed", "complete", "success", "succeeded", "finished", "failed", "error"].includes(String(st || "").toLowerCase());
+      const prev = prevJobsRef.current;
+      const justCompleted = jobs.some((job) => {
+        const was = prev.find((p) => p.id === job.id);
+        return isTerminal(job.status) && (!was || !isTerminal(was.status));
       });
-    };
-    loadOps();
-    const t = setInterval(loadOps, 5000);
-    return () => clearInterval(t);
+      prevJobsRef.current = jobs;
+      if (justCompleted) refreshBidsRef.current?.();
+    });
   }, [opsStatusFilter, opsFlowFilter]);
+  useAutoRefresh({ key: "opsDashboard", intervalMs: REFRESH_MS.opsDashboard, refresh: loadOps });
+  useEffect(() => { loadOps(); }, [loadOps]);     // initial + on filter change
 
   // ── Bid actions ──
   const toggleCheck = useCallback((id, field) => setBids(bs => bs.map(b => b.id === id ? { ...b, [field]: !b[field] } : b)), []);
@@ -492,6 +497,9 @@ export default function BidTrackerPro() {
                     : stage === "Active Bid" ? "Marked Active Bid ✓"
                     : `Moved to ${stage} ✓`;
           showToast(msg, "success");
+          // Event refresh: pipeline state changed → re-pull bids from the server so the
+          // board reflects any server-side side effects (folder, workflow columns).
+          setTimeout(() => refreshBidsRef.current?.(), 600);
         } else { showToast("Status update failed", "warn"); }
       })
       .catch(() => showToast("Status update failed — check API server", "warn"));
@@ -799,6 +807,10 @@ export default function BidTrackerPro() {
 
           {/* Clock + Theme toggle */}
           <div className="hidden md:flex items-center gap-2">
+            {/* Phase 4 auto-refresh: health · Last Updated · Sync (force refresh all) */}
+            <div className="flex bg-surface border border-border rounded-lg px-3 py-2 items-center shadow-inner">
+              <RefreshStatusBar />
+            </div>
             <div className="flex bg-surface border border-border rounded-lg px-4 py-2 items-center gap-3 shadow-inner">
               <div className={`w-2 h-2 rounded-full animate-pulse ${activeTab === "bids" ? "bg-success" : activeTab === "projects" ? "bg-info" : activeTab === "map" ? "bg-success" : "bg-special"}`} />
               <LiveClock />
