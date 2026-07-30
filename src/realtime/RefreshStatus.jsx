@@ -143,8 +143,19 @@ export function RefreshStatusBar({ compact = false, onToast }) {
     doForce();
   };
 
+  // Close diagnostics on Esc or an outside click (in addition to Alt+Click toggle + X).
+  const barRef = useRef(null);
+  useEffect(() => {
+    if (!diagOpen) return undefined;
+    const onKey = (e) => { if (e.key === "Escape") setDiagOpen(false); };
+    const onDown = (e) => { if (barRef.current && !barRef.current.contains(e.target)) setDiagOpen(false); };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onDown);
+    return () => { document.removeEventListener("keydown", onKey); document.removeEventListener("mousedown", onDown); };
+  }, [diagOpen]);
+
   return (
-    <div className="relative inline-flex items-center gap-3">
+    <div ref={barRef} className="relative inline-flex items-center gap-3">
       <SyncHealthDot health={health} />
       {!compact && <LastUpdated ts={lastUpdatedAt} />}
       <button
@@ -160,10 +171,15 @@ export function RefreshStatusBar({ compact = false, onToast }) {
       )}
       {diagOpen && (
         <div className="absolute right-0 top-9 z-50 w-80 rounded-xl border border-border bg-surface shadow-2xl p-3 text-[11px]">
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2 mb-2">
             <span className="font-bold uppercase tracking-wider text-text-muted text-[10px]">Refresh Diagnostics</span>
             <SyncHealthDot health={health} />
+            <button onClick={() => setDiagOpen(false)} aria-label="Close diagnostics"
+              className="ml-auto h-5 w-5 grid place-items-center rounded text-text-muted hover:text-text hover:bg-bg-subtle transition">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.4"><path d="M18 6 6 18M6 6l12 12" /></svg>
+            </button>
           </div>
+          <div className="text-[9px] text-text-faint mb-1.5">Esc, click outside, or Alt+Click Sync to close</div>
           <div className="max-h-72 overflow-y-auto divide-y divide-border/60">
             {rows.length === 0 && <div className="text-text-faint py-2">No channels registered yet.</div>}
             {rows.map((r) => (
