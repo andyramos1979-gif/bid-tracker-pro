@@ -44,7 +44,14 @@ export function RefreshStatusProvider({ children }) {
     return results.every((r) => r.status === "fulfilled");
   }, []);
 
-  const value = useMemo(() => ({ store, report, registerForce, forceAll }), [store, report, registerForce, forceAll]);
+  // Drop a channel's record when its surface unmounts, so a closed page's stale entry
+  // never drags overall health to "Delayed".
+  const unregister = useCallback((key) => {
+    setStore((s) => { if (!(key in s)) return s; const { [key]: _drop, ...rest } = s; return rest; });
+  }, []);
+
+  const value = useMemo(() => ({ store, report, registerForce, unregister, forceAll }),
+    [store, report, registerForce, unregister, forceAll]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
@@ -55,6 +62,7 @@ function useCtx() {
 }
 export const useRefreshReporter = () => useCtx().report;
 export const useRegisterForceRefresh = () => useCtx().registerForce;
+export const useUnregisterChannel = () => useCtx().unregister;
 export const useForceRefreshAll = () => useCtx().forceAll;
 export const useRefreshStore = () => useCtx().store;
 
