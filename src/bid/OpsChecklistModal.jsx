@@ -1,7 +1,7 @@
 // Bid Tracker — weekly ops checklist modal (Phase 0.5A extraction). Moved verbatim.
 import { useState } from "react";
 import { X, CheckCircle2 } from "lucide-react";
-import { OPS_SCHEMA } from "./constants";
+import { OPS_SCHEMA, formatCurrency } from "./constants";
 import { ProgressRing } from "./atoms";
 
 export function OpsChecklistModal({ onClose, onSave, stats }) {
@@ -55,7 +55,7 @@ export function OpsChecklistModal({ onClose, onSave, stats }) {
             {activeTab === "cash" && (
               <div className="mt-4 p-4 bg-info-soft border border-info/20 rounded-xl">
                 <div className="text-xs font-bold text-info uppercase mb-1">Live A/R Insight</div>
-                <div className="text-sm text-text-secondary">Total Open A/R detected from Projects: <span className="text-info font-bold">${stats.openAR.toLocaleString()}</span></div>
+                <div className="text-sm text-text-secondary">Total Open A/R detected from Projects: <span className="text-info font-bold">{formatCurrency(stats.openAR)}</span></div>
               </div>
             )}
           </div>

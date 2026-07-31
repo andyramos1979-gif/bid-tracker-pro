@@ -1,7 +1,7 @@
 // Bid Tracker — project detail modal (Phase 0.5A extraction). Moved verbatim.
 import { useState } from "react";
 import { Building, X, CheckCircle2, Plus, FileText, AlertTriangle, Globe, ArrowRight, Save } from "lucide-react";
-import { PROJECT_STATUS, PROJECT_PHASES } from "./constants";
+import { PROJECT_STATUS, PROJECT_PHASES, formatCurrency } from "./constants";
 import { Countdown, InputField } from "./atoms";
 
 export function ProjectModal({ project, onClose, onSave, toast }) {
@@ -77,8 +77,8 @@ export function ProjectModal({ project, onClose, onSave, toast }) {
           {tab === "overview" && (
             <div className="flex flex-col gap-6">
               <div className="grid grid-cols-4 gap-4">
-                <div className="bg-surface border border-border rounded-xl p-4"><div className="text-[10px] font-bold text-text-faint uppercase tracking-wider mb-1">Contract Value</div><div className="text-xl font-mono font-bold text-text">${Number(form.contractValue || 0).toLocaleString()}</div></div>
-                <div className="bg-surface border border-border rounded-xl p-4"><div className="text-[10px] font-bold text-text-faint uppercase tracking-wider mb-1">Collected</div><div className="text-xl font-mono font-bold text-success">${Number(form.collectedValue || 0).toLocaleString()}</div></div>
+                <div className="bg-surface border border-border rounded-xl p-4"><div className="text-[10px] font-bold text-text-faint uppercase tracking-wider mb-1">Contract Value</div><div className="text-xl font-mono font-bold text-text">{formatCurrency(form.contractValue)}</div></div>
+                <div className="bg-surface border border-border rounded-xl p-4"><div className="text-[10px] font-bold text-text-faint uppercase tracking-wider mb-1">Collected</div><div className="text-xl font-mono font-bold text-success">{formatCurrency(form.collectedValue)}</div></div>
                 <div className="bg-surface border border-border rounded-xl p-4"><div className="text-[10px] font-bold text-text-faint uppercase tracking-wider mb-1">Time Remaining</div><div className="text-xl font-mono font-bold text-text"><Countdown dueDate={form.endDate} compact /></div></div>
                 <div className="bg-surface border border-border rounded-xl p-4"><div className="text-[10px] font-bold text-text-faint uppercase tracking-wider mb-1">Current Phase</div><div className="text-xl font-bold text-info">{form.phase}</div></div>
               </div>
@@ -128,8 +128,8 @@ export function ProjectModal({ project, onClose, onSave, toast }) {
           {tab === "invoices" && (
             <div className="flex flex-col h-full max-w-3xl mx-auto w-full">
               <div className="grid grid-cols-2 gap-4 mb-6">
-                <div className="bg-success-soft border border-success/20 rounded-xl p-4"><div className="text-xs font-bold text-success/70 uppercase">Paid Total</div><div className="text-xl font-mono font-bold text-success">${(form.invoices || []).filter(i => i.status === "Paid").reduce((s, i) => s + i.amount, 0).toLocaleString()}</div></div>
-                <div className="bg-warning-soft border border-warning/20 rounded-xl p-4"><div className="text-xs font-bold text-warning/70 uppercase">Pending Total</div><div className="text-xl font-mono font-bold text-warning">${(form.invoices || []).filter(i => i.status === "Pending").reduce((s, i) => s + i.amount, 0).toLocaleString()}</div></div>
+                <div className="bg-success-soft border border-success/20 rounded-xl p-4"><div className="text-xs font-bold text-success/70 uppercase">Paid Total</div><div className="text-xl font-mono font-bold text-success">{formatCurrency((form.invoices || []).filter(i => i.status === "Paid").reduce((s, i) => s + i.amount, 0))}</div></div>
+                <div className="bg-warning-soft border border-warning/20 rounded-xl p-4"><div className="text-xs font-bold text-warning/70 uppercase">Pending Total</div><div className="text-xl font-mono font-bold text-warning">{formatCurrency((form.invoices || []).filter(i => i.status === "Pending").reduce((s, i) => s + i.amount, 0))}</div></div>
               </div>
               <div className="flex gap-3 mb-6 bg-surface p-4 rounded-xl border border-border items-end">
                 <InputField label="Invoice Amount ($)" type="number" value={newInvoiceAmt} onChange={e => setNewInvoiceAmt(e.target.value)} />
@@ -139,7 +139,7 @@ export function ProjectModal({ project, onClose, onSave, toast }) {
               <div className="flex flex-col gap-2">
                 {(form.invoices || []).slice().reverse().map((inv, idx) => (
                   <div key={inv.id || idx} className="flex justify-between items-center p-4 bg-surface border border-border rounded-xl">
-                    <div className="flex items-center gap-3"><FileText className="w-5 h-5 text-text-faint" /><span className="text-text font-mono font-bold">${inv.amount.toLocaleString()}</span></div>
+                    <div className="flex items-center gap-3"><FileText className="w-5 h-5 text-text-faint" /><span className="text-text font-mono font-bold">{formatCurrency(inv.amount)}</span></div>
                     <span className={`px-3 py-1 rounded-full text-xs font-bold ${inv.status === "Paid" ? "bg-success-soft text-success" : "bg-warning-soft text-warning"}`}>{inv.status}</span>
                   </div>
                 ))}

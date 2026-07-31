@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import {
   CHECK_FIELDS, STATUS_COLORS, PRIORITIES, DECISION_BADGE, RESULT_BADGE,
-  FOLLOWUP_CLS, PROBABILITY_OPTS, FOLLOWUP_OPTS, agingBadge, daysSince, money,
+  FOLLOWUP_CLS, PROBABILITY_OPTS, FOLLOWUP_OPTS, agingBadge, daysSince, money, formatCurrency,
 } from "./constants";
 import { ProgressRing, Countdown } from "./atoms";
 
@@ -116,9 +116,9 @@ export function BidPipelineTable({ filteredBids, costData, startupData, expanded
 
                               <td className="px-4 py-4 align-top pt-5">
                                 <div className={`text-sm font-mono font-medium ${bid.bidAmount ? "text-success" : "text-text-faint"}`}>
-                                  {bid.bidAmount ? `$${Number(bid.bidAmount).toLocaleString()}` : "—"}
+                                  {bid.bidAmount ? formatCurrency(bid.bidAmount) : "—"}
                                 </div>
-                                {bid.awardedAmount && <div className="text-[10px] text-warning font-mono mt-1">Aw: ${Number(bid.awardedAmount).toLocaleString()}</div>}
+                                {bid.awardedAmount && <div className="text-[10px] text-warning font-mono mt-1">Aw: {formatCurrency(bid.awardedAmount)}</div>}
                               </td>
 
                               <td className="px-4 py-4 align-top pt-5">
@@ -274,10 +274,10 @@ export function BidPipelineTable({ filteredBids, costData, startupData, expanded
                                               <div className="flex flex-col gap-2">
                                                 <div className="flex flex-wrap gap-1.5">
                                                   {[
-                                                    ["Committed", `$${Number(costData[bid.id].committed_cost || 0).toLocaleString()} · ${costData[bid.id].committed_po_count || 0} PO`],
-                                                    ["Actual", `$${Number(costData[bid.id].actual_cost || 0).toLocaleString()}`],
-                                                    ["Projected", `$${Number(costData[bid.id].projected_cost || 0).toLocaleString()}`],
-                                                    ["Contract", `$${Number(costData[bid.id].contract_value || 0).toLocaleString()}`],
+                                                    ["Committed", `${formatCurrency(costData[bid.id].committed_cost)} · ${costData[bid.id].committed_po_count || 0} PO`],
+                                                    ["Actual", formatCurrency(costData[bid.id].actual_cost)],
+                                                    ["Projected", formatCurrency(costData[bid.id].projected_cost)],
+                                                    ["Contract", formatCurrency(costData[bid.id].contract_value)],
                                                     ["Margin", `${costData[bid.id].margin_pct ?? 0}%`],
                                                   ].map(([k, v]) => (
                                                     <span key={k} className="px-2 py-1 rounded-md border border-border bg-surface-raised/40 text-[11px] text-text-muted">
@@ -300,9 +300,9 @@ export function BidPipelineTable({ filteredBids, costData, startupData, expanded
                                                         {costData[bid.id].categories.map(cc => (
                                                           <tr key={cc.category} className="border-t border-border">
                                                             <td className="px-2.5 py-1 text-text-secondary">{cc.category}</td>
-                                                            <td className="px-2.5 py-1 text-right font-mono text-text-muted">${Number(cc.budget || 0).toLocaleString()}</td>
-                                                            <td className="px-2.5 py-1 text-right font-mono text-text-muted">${Number(cc.actual || 0).toLocaleString()}</td>
-                                                            <td className={`px-2.5 py-1 text-right font-mono ${Number(cc.remaining) < 0 ? "text-danger" : "text-text-muted"}`}>${Number(cc.remaining || 0).toLocaleString()}</td>
+                                                            <td className="px-2.5 py-1 text-right font-mono text-text-muted">{formatCurrency(cc.budget)}</td>
+                                                            <td className="px-2.5 py-1 text-right font-mono text-text-muted">{formatCurrency(cc.actual)}</td>
+                                                            <td className={`px-2.5 py-1 text-right font-mono ${Number(cc.remaining) < 0 ? "text-danger" : "text-text-muted"}`}>{formatCurrency(cc.remaining)}</td>
                                                           </tr>
                                                         ))}
                                                       </tbody>
@@ -446,7 +446,7 @@ export function BidPipelineTable({ filteredBids, costData, startupData, expanded
                         <div className="flex items-center gap-x-2 gap-y-0.5 text-[11px] text-text-muted flex-wrap">
                           <span className="flex items-center gap-1"><Building className="w-3 h-3" /> {bid.facility}</span>
                           {bid.city && <span>· {bid.city}</span>}
-                          <span className="ml-auto font-mono font-semibold text-success">{bid.bidAmount ? `$${Number(bid.bidAmount).toLocaleString()}` : "—"}</span>
+                          <span className="ml-auto font-mono font-semibold text-success">{bid.bidAmount ? formatCurrency(bid.bidAmount) : "—"}</span>
                         </div>
                         <div className="flex items-center gap-2 mt-1.5 text-[10px] text-text-faint">
                           <span>Due {bid.dueDate ? new Date(bid.dueDate).toLocaleDateString() : "—"}</span>

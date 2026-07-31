@@ -89,9 +89,21 @@ export const FOLLOWUP_CLS = {
   "Contacted":         "text-blue-400",
   "Response Received": "text-emerald-400",
 };
+// Compact/abbreviated ($1.6K) — for KPI cards & summary chips ONLY.
 export const money = (n) => {
   const v = Number(n) || 0;
   return v >= 1000 ? `$${(v / 1000).toFixed(v >= 100000 ? 0 : 1)}K` : `$${v.toLocaleString()}`;
+};
+
+// Shared exact money formatter — ALWAYS 2 decimals, never rounded/abbreviated.
+// Use for all accounting/financial amounts (contract values, invoices, A/R, payments):
+//   formatCurrency(1575.58) -> "$1,575.58" · formatCurrency(0) -> "$0.00" · negatives OK.
+export const formatCurrency = (amount) => {
+  const n = Number(amount);
+  return new Intl.NumberFormat("en-US", {
+    style: "currency", currency: "USD",
+    minimumFractionDigits: 2, maximumFractionDigits: 2,
+  }).format(Number.isFinite(n) ? n : 0);
 };
 export const PROJECT_PHASES = ["Planning", "Design", "Procurement", "Execution", "Closeout"];
 
