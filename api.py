@@ -65,10 +65,7 @@ def _require_api_key():
         return jsonify({"error": "unauthorized: missing or invalid X-Bid-Api-Key"}), 401
     return None
 
-AGENT_DIR = Path(
-    "/Users/andyramos/Developer"
-    "/06_Pyhton_Scripts/02_Bid_Pyhton_Scripts/ARE_BID_TRACKER_AGENT"
-)
+AGENT_DIR = _SCRIPTS_ROOT / "02_Bid_Pyhton_Scripts" / "ARE_BID_TRACKER_AGENT"
 EXCEL_FILE  = AGENT_DIR / "ARE_BID_TRACKER_2026.xlsx"
 SAM_RAW_DIR = AGENT_DIR / "sam_raw"
 
@@ -79,10 +76,8 @@ SAM_RAW_DIR = AGENT_DIR / "sam_raw"
 # /api/recompete, and /api/health are unaffected -- still Excel-backed, out of
 # scope for this cutover (Project Master only).
 def _pg_dsn() -> str:
-    env_path = Path(
-        "/Users/andyramos/Developer/06_Pyhton_Scripts"
-        "/01_Finance_Phyton_Scripts/ARE_FINANCIAL_HUB/backend/.env"
-    )
+    env_path = (_SCRIPTS_ROOT / "01_Finance_Phyton_Scripts"
+                / "ARE_FINANCIAL_HUB" / "backend" / ".env")
     for line in env_path.read_text().splitlines():
         k, _, v = line.partition("=")
         if k.strip() == "DATABASE_URL":
@@ -99,6 +94,16 @@ def _pg_conn():
 # corruption). Reused, not reimplemented, so the lock path derivation can't drift.
 sys.path.insert(0, str(AGENT_DIR))
 from excel_lock_utils import workbook_lock, atomic_save  # noqa: E402
+
+# ── Platform root, derived rather than named ────────────────────────────────
+#   api.py lives at <root>/06_Pyhton_Scripts/02_Bid_Pyhton_Scripts/bid-tracker-app/
+#   parents[0] bid-tracker-app · [1] 02_Bid_Pyhton_Scripts · [2] 06_Pyhton_Scripts
+#   parents[3] the platform root.
+#   Derived, not imported from are_paths: one of the paths below IS the Hub
+#   backend's .env, so locating the Hub through the Hub would be circular.
+_SCRIPTS_ROOT   = Path(__file__).resolve().parents[2]
+_PLATFORM_ROOT  = _SCRIPTS_ROOT.parent
+
 
 
 def _build_sam_lookup():
@@ -572,8 +577,8 @@ def open_folder():
         return jsonify({"error": "No path provided"}), 400
     # Security: only allow paths inside OneDrive project folder
     allowed = (
-        "/Users/andyramos/Developer/03_Project",
-        "/Users/andyramos/Developer/02_Bid_Estimating",
+        str(_PLATFORM_ROOT / "03_Project"),
+        str(_PLATFORM_ROOT / "02_Bid_Estimating"),
     )
     if not any(path.startswith(p) for p in allowed):
         return jsonify({"error": "Path not allowed"}), 403
